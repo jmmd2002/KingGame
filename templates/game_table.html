@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Table</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+    <div class="container">
+        <h1>📊 Game Table</h1>
+        <p class="header-subtitle">Enter scores for each round</p>
+
+        <form action="{{ url_for('submit_game_table') }}" method="POST">
+            <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Rounds</th>
+                            {% for player in players %}
+                            <th>{{ player.name }}</th>
+                            {% endfor %}
+                            <th>Nulos/Positivo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set rounds = ['Vazas','Copas','Homens','Mulheres','King','Last'] %}
+                        {% for round in rounds %}
+                        <tr>
+                            <th>{{ round }}</th>
+                            {% for player in players %}
+                            <td>
+                                <input type="number" name="score_{{ round }}_{{ player.id }}"
+                                    value="{{ player|attr(round.lower()) }}" style="width:70px" min="0" required>
+                            </td>
+                            {% endfor %}
+                            <td></td>
+                        </tr>
+                        {% endfor %}
+
+                        <!-- TOTAL 1ª Fase (before Festas) -->
+                        <tr style="background: #f0f9ff; font-weight: bold;">
+                            <th>🔵 TOTAL 1ª Fase</th>
+                            {% for player in players %}
+                            <td style="color: var(--primary);">{{ totals_1fase[player.id] }}</td>
+                            {% endfor %}
+                            <td></td>
+                        </tr>
+
+                        {% set festas = ['Festa1','Festa2','Festa3','Festa4'] %}
+                        {% for festa in festas %}
+                        <tr>
+                            <th>🎉 {{ festa }}</th>
+                            {% for player in players %}
+                            <td>
+                                <input type="number" name="score_{{ festa }}_{{ player.id }}"
+                                    value="{{ player|attr(festa.lower()) }}" style="width:70px" min="0" required>
+                            </td>
+                            {% endfor %}
+                            <td>
+                                {% set first_player = players[0] %}
+                                {% set button_text = 'Nulos' if first_player.nulos_check[festa]==1 else 'Positive' %}
+                                <button type="button" class="festa-toggle-btn" data-row="{{ festa }}">{{ button_text
+                                    }}</button>
+                                <input type="hidden" name="nulos_{{ festa }}"
+                                    value="{{ first_player.nulos_check[festa] }}">
+                            </td>
+                        </tr>
+                        {% endfor %}
+
+                        <!-- TOTAL final (after Festas) -->
+                        <tr style="background: #f0fdf4; font-weight: bold;">
+                            <th>🏆 TOTAL FINAL</th>
+                            {% for player in players %}
+                            <td style="color: var(--success);">{{ totals_final[player.id] }}</td>
+                            {% endfor %}
+                            <td></td>
+                        </tr>
+
+                        <!-- Rank row -->
+                        <tr>
+                            <th>🥇 Rank</th>
+                            {% for player in players %}
+                            <td>
+                                {% if player_ranks %}
+                                {{ player_ranks[player.id] }}
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                            {% endfor %}
+                            <td></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="display: flex; gap: 15px; justify-content: center; margin-top: 30px; flex-wrap: wrap;">
+                <button type="submit" class="btn">💾 Save Changes</button>
+                <button type="submit" formaction="{{ url_for('finish_game') }}" formmethod="post" id="finish-game"
+                    class="btn btn-success">
+                    ✅ Finish Game
+                </button>
+            </div>
+        </form>
+
+        <a href="{{ url_for('index') }}" class="btn btn-back" style="margin-top: 20px;">← Back to Menu</a>
+    </div>
+
+    <script>
+        document.getElementById('finish-game').addEventListener('click', (e) => {
+            if (!confirm('Are you sure you want to finish the game? Rankings will be saved.')) {
+                e.preventDefault();
+            }
+        });
+
+        document.querySelectorAll('.festa-toggle-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const rowName = btn.dataset.row;
+                const hiddenInput = document.querySelector(`input[name="nulos_${rowName}"]`);
+                if (btn.textContent === "Nulos") {
+                    btn.textContent = "Positivo";
+                    hiddenInput.value = 0;
+                } else {
+                    btn.textContent = "Nulos";
+                    hiddenInput.value = 1;
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>

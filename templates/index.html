@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>King Game</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+    <div class="container">
+        <h1>👑 King Game</h1>
+        <p class="header-subtitle">Track scores and rankings for your card games</p>
+        <div class="menu">
+            <a href="{{ url_for('start_game') }}" class="btn btn-success">🎮 Start Game</a>
+            <a href="{{ url_for('leaderboard') }}" class="btn">🏆 Leaderboard</a>
+            <a href="{{ url_for('players') }}" class="btn">👥 Manage Players</a>
+        </div>
+    </div>
+</body>
+
+</html>

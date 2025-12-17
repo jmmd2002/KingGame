@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leaderboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .medal {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 40px;
+            margin-right: 10px;
+            font-weight: bold;
+            color: white;
+        }
+
+        .medal.gold {
+            background: linear-gradient(135deg, #FFD700, #FFA500);
+        }
+
+        .medal.silver {
+            background: linear-gradient(135deg, #C0C0C0, #808080);
+        }
+
+        .medal.bronze {
+            background: linear-gradient(135deg, #CD7F32, #8B4513);
+        }
+
+        .leaderboard-row {
+            display: grid;
+            grid-template-columns: 60px 1fr repeat(4, 100px) 120px;
+            align-items: center;
+            padding: 20px;
+            background: var(--gray-50);
+            border-radius: 8px;
+            margin-bottom: 12px;
+            border-left: 4px solid var(--primary);
+            transition: all 0.3s;
+        }
+
+        .leaderboard-row:hover {
+            background: var(--gray-100);
+            transform: translateX(4px);
+        }
+
+        .leaderboard-row.gold-row {
+            border-left-color: #FFD700;
+            background: linear-gradient(to right, rgba(255, 215, 0, 0.1), transparent);
+        }
+
+        .leaderboard-row.silver-row {
+            border-left-color: #C0C0C0;
+            background: linear-gradient(to right, rgba(192, 192, 192, 0.1), transparent);
+        }
+
+        .leaderboard-row.bronze-row {
+            border-left-color: #CD7F32;
+            background: linear-gradient(to right, rgba(205, 127, 50, 0.1), transparent);
+        }
+
+        .player-name {
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: var(--gray-900);
+        }
+
+        .stat-value {
+            text-align: center;
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .win-rate {
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .win-rate.high {
+            color: var(--success);
+        }
+
+        .win-rate.medium {
+            color: var(--warning);
+        }
+
+        .win-rate.low {
+            color: var(--gray-500);
+        }
+
+        .stats-header {
+            display: grid;
+            grid-template-columns: 60px 1fr repeat(4, 100px) 120px;
+            padding: 15px 20px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        .stats-header>div:first-child {
+            text-align: left;
+        }
+
+        .stats-header>div:nth-child(2) {
+            text-align: left;
+        }
+
+        .empty-message {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--gray-500);
+            font-size: 1.1rem;
+        }
+
+        .filter-btn-inactive {
+            background: var(--gray-300);
+            color: var(--gray-900);
+        }
+
+        .filter-btn-inactive:hover {
+            background: var(--gray-400);
+        }
+
+        @media (max-width: 768px) {
+
+            .leaderboard-row,
+            .stats-header {
+                grid-template-columns: 50px 1fr 80px;
+            }
+
+            .stat-value,
+            .win-rate {
+                display: none;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🏆 Leaderboard</h1>
+        <p class="header-subtitle">Player rankings and statistics</p>
+
+        <!-- Filter Buttons -->
+        <div style="display: flex; gap: 15px; margin: 30px 0; justify-content: center; flex-wrap: wrap;">
+            <a href="{{ url_for('leaderboard', sort_by='points') }}"
+                class="btn {% if sort_by == 'points' %}btn-success{% else %}filter-btn-inactive{% endif %}">
+                ⭐ Sort by Points
+            </a>
+            <a href="{{ url_for('leaderboard', sort_by='winrate') }}"
+                class="btn {% if sort_by == 'winrate' %}btn-success{% else %}filter-btn-inactive{% endif %}">
+                📈 Sort by Win Rate
+            </a>
+        </div>
+
+        {% if player_stats %}
+        <div class="stats-header">
+            <div>#</div>
+            <div>Player</div>
+            <div>🥇 1st</div>
+            <div>🥈 2nd</div>
+            <div>🥉 3rd</div>
+            <div>4th</div>
+            <div>
+                {% if sort_by == 'winrate' %}
+                📈 Win Rate
+                {% else %}
+                ⭐ Points
+                {% endif %}
+            </div>
+        </div>
+
+        {% for stat in player_stats %}
+        <div
+            class="leaderboard-row {% if loop.index == 1 %}gold-row{% elif loop.index == 2 %}silver-row{% elif loop.index == 3 %}bronze-row{% endif %}">
+            <div>
+                {% if loop.index == 1 %}
+                <span class="medal gold">🥇</span>
+                {% elif loop.index == 2 %}
+                <span class="medal silver">🥈</span>
+                {% elif loop.index == 3 %}
+                <span class="medal bronze">🥉</span>
+                {% else %}
+                <span style="font-weight: bold; color: var(--gray-500);">{{ loop.index }}</span>
+                {% endif %}
+            </div>
+            <div class="player-name">{{ stat.name }}</div>
+            <div class="stat-value">{{ stat.firsts }}</div>
+            <div class="stat-value">{{ stat.seconds }}</div>
+            <div class="stat-value">{{ stat.thirds }}</div>
+            <div class="stat-value">{{ stat.fourths }}</div>
+            <div
+                class="win-rate {% if sort_by == 'winrate' %}{% if stat.win_rate >= 50 %}high{% elif stat.win_rate >= 25 %}medium{% else %}low{% endif %}{% else %}{% endif %}">
+                {% if sort_by == 'winrate' %}
+                {{ "%.1f"|format(stat.win_rate) }}%
+                {% else %}
+                {{ stat.total_points }} pts
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+
+        {% if player_stats %}
+        <div style="margin-top: 30px; padding: 20px; background: var(--gray-50); border-radius: 8px;">
+            <h3 style="margin-bottom: 15px; color: var(--gray-900);">📊 Summary</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                <div style="padding: 15px; background: white; border-radius: 6px; border-left: 4px solid #FFD700;">
+                    <div style="color: var(--gray-500); font-size: 0.9rem;">Total Players</div>
+                    <div style="font-size: 1.8rem; font-weight: bold; color: var(--primary);">{{ player_stats|length }}
+                    </div>
+                </div>
+                <div
+                    style="padding: 15px; background: white; border-radius: 6px; border-left: 4px solid var(--success);">
+                    <div style="color: var(--gray-500); font-size: 0.9rem;">Top Player</div>
+                    <div style="font-size: 1.8rem; font-weight: bold; color: var(--success);">{{ player_stats[0].name }}
+                    </div>
+                </div>
+                <div
+                    style="padding: 15px; background: white; border-radius: 6px; border-left: 4px solid var(--warning);">
+                    <div style="color: var(--gray-500); font-size: 0.9rem;">
+                        {% if sort_by == 'winrate' %}Top Win Rate{% else %}Top Score{% endif %}
+                    </div>
+                    <div style="font-size: 1.8rem; font-weight: bold; color: var(--warning);">
+                        {% if sort_by == 'winrate' %}
+                        {{ "%.1f"|format(player_stats[0].win_rate) }}%
+                        {% else %}
+                        {{ player_stats[0].total_points }} pts
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% else %}
+        <div class="empty-message">
+            <p>No players yet. <a href="{{ url_for('players') }}"
+                    style="color: var(--primary); text-decoration: none; font-weight: 600;">Add players</a> to see the
+                leaderboard.</p>
+        </div>
+        {% endif %}
+
+        <a href="{{ url_for('index') }}" class="btn btn-back" style="margin-top: 30px;">← Back to Menu</a>
+    </div>
+</body>
+
+</html>

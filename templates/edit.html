@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Edit Player</title>
+</head>
+
+<body>
+    <h1>Edit Player</h1>
+
+    {% with messages = get_flashed_messages() %}
+    {% if messages %}
+    <ul style="color: red;">
+        {% for message in messages %}
+        <li>{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+    {% endwith %}
+
+    <form method="post">
+        <input type="text" name="new_name" value="{{ player.name }}">
+        <button type="submit">Save</button>
+        <a href="{{ url_for('index') }}">Cancel</a>
+    </form>
+</body>
+
+</html>

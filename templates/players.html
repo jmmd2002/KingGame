@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Player List</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+    <div class="container">
+        <h1>👥 Players</h1>
+
+        {% with messages = get_flashed_messages() %}
+        {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+            <li>{{ message }}</li>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        <form action="{{ url_for('add_player') }}" method="POST">
+            <h2>Add New Player</h2>
+            <div class="form-group">
+                <input type="text" name="name" placeholder="Enter player name" required>
+                <button type="submit" class="btn btn-success">➕ Add</button>
+            </div>
+        </form>
+
+        <h2>Current Players</h2>
+        {% if players %}
+        <ul class="player-list">
+            {% for player in players %}
+            <li>
+                <form action="{{ url_for('edit_player', player_id=player.id) }}" method="POST"
+                    style="display:flex; gap: 10px; flex: 1;">
+                    <input type="text" name="new_name" value="{{ player.name }}" required>
+                    <button type="submit" class="btn">✏️ Edit</button>
+                </form>
+                <a href="{{ url_for('delete_player', player_id=player.id) }}" class="delete"
+                    onclick="return confirm('Are you sure you want to delete {{ player.name }}?');">
+                    ❌
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p style="text-align: center; color: var(--gray-500); padding: 30px;">No players yet. Add one to get started!
+        </p>
+        {% endif %}
+
+        <a href="{{ url_for('index') }}" class="btn btn-back">← Back to Menu</a>
+    </div>
+</body>
+
+</html>

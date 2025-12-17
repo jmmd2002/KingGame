@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Select Players</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script>
+        function updateButton() {
+            const checkboxes = document.querySelectorAll('input[name="players"]:checked');
+            const nextBtn = document.getElementById('nextBtn');
+            const count = document.getElementById('count');
+            count.textContent = checkboxes.length;
+            nextBtn.disabled = (checkboxes.length !== 4);
+        }
+    </script>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🎮 Select Players</h1>
+        <p class="header-subtitle">Choose exactly 4 players to start the game</p>
+
+        {% with messages = get_flashed_messages() %}
+        {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+            <li>{{ message }}</li>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        <form action="{{ url_for('game_table') }}" method="POST">
+            <div class="checkbox-group">
+                {% for player in players %}
+                <div class="checkbox-item">
+                    <input type="checkbox" id="player-{{ player.id }}" name="players" value="{{ player.id }}"
+                        onchange="updateButton()">
+                    <label for="player-{{ player.id }}">{{ player.name }}</label>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div style="text-align: center; margin: 30px 0;">
+                <p style="font-size: 1.2rem; color: var(--gray-700); margin-bottom: 20px;">
+                    Selected: <span id="count" style="color: var(--primary); font-weight: bold;">0</span>/4 players
+                </p>
+                <button type="submit" id="nextBtn" class="btn btn-success" disabled
+                    style="padding: 15px 40px; font-size: 1.1rem;">
+                    ▶️ Next
+                </button>
+            </div>
+        </form>
+
+        <a href="{{ url_for('index') }}" class="btn btn-back">← Back to Menu</a>
+    </div>
+</body>
+
+</html>
