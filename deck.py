@@ -32,6 +32,16 @@ class Card:
     
     def __repr__(self) -> str:
         return f"{self.rank.value}{self.suit.name[0]}"
+    
+    def __eq__(self, other):
+        """Compare cards by suit and rank (not object identity)"""
+        if not isinstance(other, Card):
+            return False
+        return self.suit == other.suit and self.rank == other.rank
+    
+    def __hash__(self):
+        """Hash based on suit and rank for use in sets/dicts"""
+        return hash((self.suit, self.rank))
 
 
 class Deck:

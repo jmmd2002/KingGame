@@ -5,7 +5,7 @@ from game_player import GamePlayer
 
 
 class Game:
-    ROUND_ORDER = ["vazas", "copas", "homens", "mulheres", "king", "last", "nulos"]
+    ROUND_ORDER = ["vazas", "copas", "homens", "mulheres", "king", "last"]  # Skip "nulos" for now
     
     def __init__(self, player_names: list[str]):
         """
@@ -38,17 +38,80 @@ class Game:
         """Get current hand for a player"""
         return self.current_round.player_hands[player]
     
+    def get_valid_plays(self, player: int) -> list[Card]:
+        """
+        Get valid cards a player can play based on suit-following rules.
+        Uses the Round class validation logic.
+        """
+        hand = self.current_round.player_hands[player]
+        
+        if not hand:
+            return []
+        
+        # If vaza hasn't started yet or no main suit, all cards are valid
+        if self.current_round.current_vaza is None or self.current_round.current_vaza.main_suit is None:
+            return hand.copy()
+        
+        # Check what cards the player has
+        has_main_suit = any(c.suit == self.current_round.current_vaza.main_suit for c in hand)
+        round_type = self.get_current_round_type()
+        
+        valid = []
+        
+        for card in hand:
+            # Try to play this card - use Round's validation
+            # Create a temporary copy to test
+            temp_hands = [h.copy() for h in self.current_round.player_hands]
+            temp_round = Round(temp_hands, round_type)
+            temp_round.current_vaza = self.current_round.current_vaza
+            
+            # This is hacky - let's just duplicate the validation logic here
+            # to avoid circular dependency
+            
+            if round_type == "copas":
+                if has_main_suit and card.suit != self.current_round.current_vaza.main_suit:
+                    continue
+                has_hearts = any(c.suit == Suit.HEARTS for c in hand)
+                if not has_main_suit and has_hearts and card.suit != Suit.HEARTS:
+                    continue
+                valid.append(card)
+            elif round_type == "homens":
+                if has_main_suit and card.suit != self.current_round.current_vaza.main_suit:
+                    continue
+                has_men = any(c.rank == Rank.JACK or c.rank == Rank.KING for c in hand)
+                if not has_main_suit and has_men and card.rank not in [Rank.JACK, Rank.KING]:
+                    continue
+                valid.append(card)
+            elif round_type == "mulheres":
+                if has_main_suit and card.suit != self.current_round.current_vaza.main_suit:
+                    continue
+                has_women = any(c.rank == Rank.QUEEN for c in hand)
+                if not has_main_suit and has_women and card.rank != Rank.QUEEN:
+                    continue
+                valid.append(card)
+            else:
+                # Default: follow suit
+                if has_main_suit and card.suit != self.current_round.current_vaza.main_suit:
+                    continue
+                valid.append(card)
+        
+        return valid if valid else hand.copy()  # If no valid by rules, can play anything
+    
     def play_vaza(self, card_plays: list[tuple[int, Card]]) -> int:
         """
         Play one complete vaza with user-provided decisions.
         card_plays: list of (player_index, card) tuples in play order
+        
+        Note: Assumes start_vaza() has already been called and 
+        cards have been added to current_vaza already (for AI decision making).
         Returns: player index of vaza winner
         """
-        self.current_round.start_vaza()
         
+        # Validate and remove cards from hands
         for player, card in card_plays:
-            if not self.current_round.play_card(player, card):
+            if card not in self.current_round.player_hands[player]:
                 raise ValueError(f"Invalid play: Player {player} doesn't have {card}")
+            self.current_round.player_hands[player].remove(card)
         
         winner = self.current_round.complete_vaza()
         return winner
