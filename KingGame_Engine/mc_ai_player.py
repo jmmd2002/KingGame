@@ -388,18 +388,22 @@ class MonteCarloAI:
             return self.point_manager.get_points("king", 1 if has_king else 0)
         
         elif self.round_type == "last":
-            # Last round: count final 2 vazas
-            if len(sim_round.vazas_history) >= 2:
-                last_vaza_winner = sim_round.vazas_history[-1].winner
-                second_last_vaza_winner = sim_round.vazas_history[-2].winner
-                
-                count = 0
-                if last_vaza_winner == self.my_player_index:
+            # Last round: count final 2 vazas (12th and 13th, indices 11-12)
+            count = 0
+            
+            history = sim_round.vazas_history
+            
+            # Check 12th vaza (index 11)
+            if len(history) >= 12:
+                if history[11].winner == self.my_player_index:
                     count += 1
-                if second_last_vaza_winner == self.my_player_index:
+            
+            # Check 13th vaza (index 12)
+            if len(history) >= 13:
+                if history[12].winner == self.my_player_index:
                     count += 1
-                
-                return self.point_manager.get_points("last", count)
+            
+            return self.point_manager.get_points("last", count)
         
         elif self.round_type in ["festa1", "festa2", "festa3", "festa4"]:
             # Festa rounds: use actual point values for proper comparison with other rounds
