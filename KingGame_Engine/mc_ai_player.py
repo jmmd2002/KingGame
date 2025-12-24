@@ -239,13 +239,9 @@ class MonteCarloAI:
             # Start fresh round with simulated hands
             sim_round = Round(player_hands_copy, self.round_type, trump_suit=self.trump_suit)
             
-            # Copy current vaza state if in middle of vaza
-            if current_vaza.cards_played:
-                # We're in middle of a vaza, need to continue it
-                # For simplicity, finish this vaza with random/AI moves
-                sim_round.current_vaza = current_vaza.__dict__.copy()
-                # This is complex - for now, let's start fresh vaza
-                pass
+            # NOTE: If we're mid-vaza, we lose context about cards already played.
+            # This is a limitation - simulations assume fresh vaza start.
+            # Future improvement: properly track and continue mid-vaza state.
             
             # Play out the round with simulated players
             self._play_out_round_simulation(sim_round)
