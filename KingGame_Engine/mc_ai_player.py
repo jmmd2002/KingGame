@@ -406,17 +406,10 @@ class MonteCarloAI:
             return self.point_manager.get_points("last", count)
         
         elif self.round_type in ["festa1", "festa2", "festa3", "festa4"]:
-            # Festa rounds: use actual point values for proper comparison with other rounds
-            # This ensures festa decisions have appropriate weight relative to base rounds
+            # Festa rounds: calculate points based on nulos/positivo mode
             count = sim_round.vazas_won[self.my_player_index]
             
-            if self.is_nulos:
-                # Nulos: 325 - 75*vazas (lower score with more vazas)
-                # Return as-is so MC minimizes = fewer vazas
-                return self.point_manager.get_points_nulos(count, nulos=True)
-            else:
-                # Positivos: 25 points per vaza (positive score)
-                # Negate so MC minimizes negative = maximizes vazas
-                return -self.point_manager.get_points("positivo", count)
+            # Use stored is_nulos flag set during initialization
+            return self.point_manager.get_points_nulos(count, nulos=self.is_nulos)
         
         return 0.0
