@@ -53,7 +53,7 @@ def run_comparison_game(num_games=5):
             for i in range(4):
                 if i == 0:
                     # MC AI with trump_suit and is_nulos for festa
-                    ai_players[i] = MonteCarloAI(i, round_type, num_simulations=20, trump_suit=trump_suit, is_nulos=is_nulos)
+                    ai_players[i] = MonteCarloAI(i, round_type, num_simulations=50, trump_suit=trump_suit, is_nulos=is_nulos)
                 else:
                     # Heuristic AI with is_nulos for festa
                     ai_players[i] = AIPlayer(game.get_player_hand(i), round_type, is_nulos=is_nulos)

@@ -37,19 +37,27 @@ class MonteCarloAI:
     def _get_adaptive_sim_count(self, hand_size: int, num_valid_plays: int) -> int:
         """
         Adjust simulation count based on game state.
-        More simulations when uncertainty is high.
+        More simulations when uncertainty is high or round is critical.
         """
         base = self.num_simulations
         
+        # Round-specific: think harder on high-stakes rounds
+        if self.round_type == "king":
+            base = int(base * 2.0)  # King round is critical (-160 pts)
+        elif self.round_type in ["festa1", "festa2", "festa3", "festa4"]:
+            base = int(base * 1.5)  # Festa rounds have biggest swings (±300 pts)
+        elif self.round_type == "last":
+            base = int(base * 1.3)  # Last 2 tricks matter (-180 pts total)
+        
         # More simulations early in round (more uncertainty)
         if hand_size > 8:
-            base = int(base * 1.5)
+            base = int(base * 1.3)
         
         # More simulations with many choices
         if num_valid_plays > 5:
             base = int(base * 1.2)
         
-        return min(base, 200)  # Cap at 200 to avoid excessive slowdown
+        return min(base, 300)  # Cap at 300
     
     def choose_card(self, my_hand: list[Card], valid_plays: list[Card], 
                    cards_played_this_round: list[Card], current_vaza) -> Card:
