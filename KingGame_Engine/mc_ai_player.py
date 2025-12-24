@@ -18,17 +18,38 @@ class MonteCarloAI:
     5. Choose card with best (lowest) average score
     """
     
-    def __init__(self, my_player_index: int, round_type: str = "vazas", num_simulations: int = 50):
+    def __init__(self, my_player_index: int, round_type: str = "vazas", num_simulations: int = 100, trump_suit: Suit = None, is_nulos: bool = None):
         """
         Args:
             my_player_index: Which player am I (0-3)
             round_type: Current round type
             num_simulations: How many simulations to run per card (higher = smarter but slower)
+            trump_suit: Trump suit for festa positivos rounds (optional)
+            is_nulos: True for nulos festa, False for positivos festa, None for non-festa rounds
         """
         self.my_player_index = my_player_index
         self.round_type = round_type
+        self.is_nulos = is_nulos
         self.num_simulations = num_simulations
+        self.trump_suit = trump_suit
         self.point_manager = PointManager()
+    
+    def _get_adaptive_sim_count(self, hand_size: int, num_valid_plays: int) -> int:
+        """
+        Adjust simulation count based on game state.
+        More simulations when uncertainty is high.
+        """
+        base = self.num_simulations
+        
+        # More simulations early in round (more uncertainty)
+        if hand_size > 8:
+            base = int(base * 1.5)
+        
+        # More simulations with many choices
+        if num_valid_plays > 5:
+            base = int(base * 1.2)
+        
+        return min(base, 200)  # Cap at 200 to avoid excessive slowdown
     
     def choose_card(self, my_hand: list[Card], valid_plays: list[Card], 
                    cards_played_this_round: list[Card], current_vaza) -> Card:
@@ -49,6 +70,9 @@ class MonteCarloAI:
         if len(valid_plays) == 1:
             return valid_plays[0]
         
+        # Use adaptive simulation count based on game state
+        num_sims = self._get_adaptive_sim_count(len(my_hand), len(valid_plays))
+        
         # (Verbose output disabled for cleaner testing)
         
         best_card = None
@@ -60,7 +84,7 @@ class MonteCarloAI:
             total_points = 0
             
             # Run multiple simulations for this card
-            for sim in range(self.num_simulations):
+            for sim in range(num_sims):
                 # Step 1: Estimate what opponents have
                 # Exclude cards played in current vaza as well
                 cards_played_in_current_vaza = current_vaza.cards_played if current_vaza else []
@@ -102,13 +126,9 @@ class MonteCarloAI:
         Estimate what cards opponents have.
         
         Logic:
-        1. Create list of all 52 cards (using same card objects as game)
-        2. Remove my hand
-        3. Remove cards already played THIS ROUND
-        4. Remove cards already played in CURRENT VAZA
-        5. Get list of players who HAVEN'T played in current vaza yet
-        6. Distribute remaining cards ONLY to players who haven't played
-        7. Extra cards go to players with earlier play order (haven't played yet)
+        1. Create list of all 52 cards
+        2. Remove my hand and cards already played
+        3. Distribute remaining cards to opponents who haven't played yet
         
         Args:
             my_hand: Cards I'm holding (from actual game)
@@ -138,9 +158,6 @@ class MonteCarloAI:
         
         # Find unknown cards
         unknown_tuples = all_card_tuples - my_hand_set - cards_played_set - current_vaza_set
-        
-        # Now recreate Card objects for unknown cards (we need the actual objects)
-        # Actually, we can just use the tuples and create new Cards for simulation
         unknown_cards = [Card(suit, rank) for suit, rank in unknown_tuples]
         
         # Identify opponents who HAVEN'T played in current vaza yet
@@ -173,7 +190,8 @@ class MonteCarloAI:
                     cards_to_give += 1
                 
                 if cards_to_give > 0 and remaining_copy:
-                    opponent_hand = random.sample(remaining_copy, min(cards_to_give, len(remaining_copy)))
+                    cards_to_take = min(cards_to_give, len(remaining_copy))
+                    opponent_hand = random.sample(remaining_copy, cards_to_take)
                     opponent_hands[opponent_index] = opponent_hand
                     
                     for card in opponent_hand:
@@ -211,7 +229,7 @@ class MonteCarloAI:
         # Create a Round to simulate from current state
         try:
             # Start fresh round with simulated hands
-            sim_round = Round(player_hands_copy, self.round_type)
+            sim_round = Round(player_hands_copy, self.round_type, trump_suit=self.trump_suit)
             
             # Copy current vaza state if in middle of vaza
             if current_vaza.cards_played:
@@ -319,10 +337,18 @@ class MonteCarloAI:
     
     def _choose_card_heuristic(self, valid_plays: list[Card], current_vaza) -> Card:
         """
-        Simple heuristic for choosing cards in simulation (for opponent moves).
-        Just returns lowest card to avoid winning.
+        Use heuristic AI for more realistic opponent simulation.
+        This models actual gameplay better than always playing lowest card.
         """
-        return min(valid_plays, key=lambda c: c.rank.value)
+        # Determine if it's nulos for festa rounds
+        is_nulos = None
+        if self.round_type in ["festa1", "festa2", "festa3", "festa4"]:
+            # If no trump_suit, it's nulos (avoid vazas)
+            is_nulos = (self.trump_suit is None)
+        
+        # Use actual heuristic AI for realistic play
+        ai = AIPlayer(valid_plays, self.round_type, is_nulos=is_nulos)
+        return ai.choose_card(valid_plays, current_vaza)
     
     def _calculate_round_score(self, sim_round: Round) -> float:
         """
@@ -370,5 +396,19 @@ class MonteCarloAI:
                     count += 1
                 
                 return self.point_manager.get_points("last", count)
+        
+        elif self.round_type in ["festa1", "festa2", "festa3", "festa4"]:
+            # Festa rounds: use actual point values for proper comparison with other rounds
+            # This ensures festa decisions have appropriate weight relative to base rounds
+            count = sim_round.vazas_won[self.my_player_index]
+            
+            if self.is_nulos:
+                # Nulos: 325 - 75*vazas (lower score with more vazas)
+                # Return as-is so MC minimizes = fewer vazas
+                return self.point_manager.get_points_nulos(count, nulos=True)
+            else:
+                # Positivos: 25 points per vaza (positive score)
+                # Negate so MC minimizes negative = maximizes vazas
+                return -self.point_manager.get_points("positivo", count)
         
         return 0.0

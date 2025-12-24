@@ -11,14 +11,16 @@ class AIPlayer:
     Future: Will estimate opponent hands based on play history
     """
     
-    def __init__(self, hand, round_type):
+    def __init__(self, hand, round_type, is_nulos=None):
         """
         Args:
             hand: List of Card objects player has
-            round_type: String ("vazas", "copas", "homens", "mulheres", "king", "last")
+            round_type: String ("vazas", "copas", "homens", "mulheres", "king", "last", "festa1-4")
+            is_nulos: For festa rounds, True=nulos (avoid vazas), False=positivos (win vazas), None=unknown
         """
         self.hand = hand
         self.round_type = round_type
+        self.is_nulos = is_nulos
     
     def choose_card(self, valid_plays, current_vaza):
         """
@@ -50,6 +52,8 @@ class AIPlayer:
             return self._choose_king(valid_plays, current_vaza)
         elif self.round_type == "last":
             return self._choose_last(valid_plays, current_vaza)
+        elif self.round_type in ["festa1", "festa2", "festa3", "festa4"]:
+            return self._choose_festa(valid_plays, current_vaza)
         else:
             # Fallback: play lowest card
             return min(valid_plays, key=lambda c: c.rank.value)
@@ -152,3 +156,34 @@ class AIPlayer:
             return max(safe_cards, key=lambda c: c.rank.value)
         
         return min(valid_plays, key=lambda c: c.rank.value)
+
+    def _choose_festa(self, valid_plays, current_vaza):
+        """
+        Festa rounds: Strategy depends on nulos vs positivos mode.
+        - In nulos (is_nulos=True): AVOID winning vazas (like vazas round)
+        - In positivos (is_nulos=False): TRY to win vazas (play aggressively)
+        - Unknown (is_nulos=None): default to avoiding (safer)
+        """
+        # If nulos or unknown, use vazas strategy (avoid winning)
+        if self.is_nulos is None or self.is_nulos:
+            return self._choose_vazas(valid_plays, current_vaza)
+        
+        # POSITIVOS strategy: Try to win the vaza
+        if not current_vaza.cards_played:
+            # First to play: play highest card to try winning
+            return max(valid_plays, key=lambda c: c.rank.value)
+        
+        main_suit = current_vaza.main_suit
+        highest_main = max(
+            [c for c in current_vaza.cards_played if c.suit == main_suit],
+            key=lambda c: c.rank.value
+        )
+        
+        # Try to beat the highest card
+        winning_cards = [c for c in valid_plays if c.suit == main_suit and c.rank.value > highest_main.rank.value]
+        if winning_cards:
+            # Play lowest winning card (efficient)
+            return min(winning_cards, key=lambda c: c.rank.value)
+        
+        # Can't win - play highest card anyway (might win later)
+        return max(valid_plays, key=lambda c: c.rank.value)

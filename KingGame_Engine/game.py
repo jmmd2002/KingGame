@@ -5,11 +5,18 @@ from game_player import GamePlayer
 
 
 class Game:
-    ROUND_ORDER = ["vazas", "copas", "homens", "mulheres", "king", "last"]  # Skip "nulos" for now
+    ROUND_ORDER = ["vazas", "copas", "homens", "mulheres", "king", "last", "festa1", "festa2", "festa3", "festa4"]
     
-    def __init__(self, player_names: list[str]):
+    def __init__(self, player_names: list[str], starting_player: int = 0):
+        # Track festa modes: 1=nulos (negative), 0=positivos (positive)
+        self.festa_modes = {"festa1": 1, "festa2": 1, "festa3": 1, "festa4": 1}
+        # Track festa starting players
+        self.festa_starters = {"festa1": 0, "festa2": 0, "festa3": 0, "festa4": 0}
+        # Track festa trump suits (only for positivos mode)
+        self.festa_trump_suits = {"festa1": None, "festa2": None, "festa3": None, "festa4": None}
         """
         player_names: list of 4 player names
+        starting_player: index of player who starts the first round (0-3)
         """
         self.player_names = player_names
         self.players = [GamePlayer(i, name) for i, name in enumerate(player_names)]
@@ -17,6 +24,7 @@ class Game:
         self.current_round = None
         self.round_results: list[dict] = []  # Store results of each round
         self.cumulative_points = [0, 0, 0, 0]
+        self.starting_player = starting_player
         
         self._start_round()
     
@@ -26,7 +34,33 @@ class Game:
             deck = Deck()
             player_hands = deck.distribute()
             round_type = self.ROUND_ORDER[self.round_index]
-            self.current_round = Round(player_hands, round_type)
+            
+            # Determine starting player
+            if self.round_index == 0:
+                starter = self.starting_player
+            elif round_type in ["festa1", "festa2", "festa3", "festa4"]:
+                starter = self.festa_starters.get(round_type, 0)
+            else:
+                starter = self.current_round.vaza_starter
+            
+            # Get trump suit for festa positivos rounds
+            trump_suit = None
+            if round_type in ["festa1", "festa2", "festa3", "festa4"]:
+                trump_suit = self.festa_trump_suits.get(round_type)
+            
+            self.current_round = Round(player_hands, round_type, starter, trump_suit)
+    
+    def set_festa_config(self, festa_name: str, starter: int, is_nulos: bool, trump_suit: Suit = None):
+        """Configure a festa round before it starts"""
+        self.festa_starters[festa_name] = starter
+        self.festa_modes[festa_name] = 1 if is_nulos else 0
+        self.festa_trump_suits[festa_name] = trump_suit if not is_nulos else None
+    
+    def is_festa_nulos(self, round_type: str) -> bool:
+        """Check if a festa round is in nulos mode"""
+        if round_type in self.festa_modes:
+            return self.festa_modes[round_type] == 1
+        return False
     
     def get_current_round_type(self) -> str:
         """Get the current round type"""
@@ -97,10 +131,11 @@ class Game:
         
         return valid if valid else hand.copy()  # If no valid by rules, can play anything
     
-    def play_vaza(self, card_plays: list[tuple[int, Card]]) -> int:
+    def play_vaza(self, card_plays: list[tuple[int, Card]], validate_hands: bool = True) -> int:
         """
         Play one complete vaza with user-provided decisions.
         card_plays: list of (player_index, card) tuples in play order
+        validate_hands: if False, skip validation (for real-life mode where cards are dealt externally)
         
         Note: Assumes start_vaza() has already been called and 
         cards have been added to current_vaza already (for AI decision making).
@@ -109,9 +144,16 @@ class Game:
         
         # Validate and remove cards from hands
         for player, card in card_plays:
-            if card not in self.current_round.player_hands[player]:
-                raise ValueError(f"Invalid play: Player {player} doesn't have {card}")
-            self.current_round.player_hands[player].remove(card)
+            if validate_hands:
+                if card not in self.current_round.player_hands[player]:
+                    raise ValueError(f"Invalid play: Player {player} doesn't have {card}")
+                self.current_round.player_hands[player].remove(card)
+            else:
+                # Real-life mode: just try to remove, if not present, skip
+                try:
+                    self.current_round.player_hands[player].remove(card)
+                except ValueError:
+                    pass  # Card not in tracked hand, that's OK in real-life mode
         
         winner = self.current_round.complete_vaza()
         return winner
@@ -184,7 +226,14 @@ class Game:
         """
         round_type = self.get_current_round_type()
         
-        if round_type == "vazas":
+        if round_type in ["festa1", "festa2", "festa3", "festa4"]:
+            # Festa rounds: check if nulos or positivos
+            is_nulos = self.festa_modes[round_type]
+            return [
+                PointManager.get_points_nulos(self.current_round.vazas_won[i], is_nulos)
+                for i in range(4)
+            ]
+        elif round_type == "vazas":
             # Points based on number of vazas won
             return [
                 PointManager.get_points(round_type, self.current_round.vazas_won[i])
@@ -299,7 +348,13 @@ class Game:
     def _update_player_stats(self, round_type: str):
         """Update GamePlayer stats based on round results"""
         for player_idx in range(4):
-            if round_type == "vazas":
+            if round_type in ["festa1", "festa2", "festa3", "festa4"]:
+                # Store festa results
+                festa_num = int(round_type[-1])  # Extract number from festa1, festa2, etc.
+                setattr(self.players[player_idx], f"festa{festa_num}", self.current_round.vazas_won[player_idx])
+                # Update nulos_check
+                self.players[player_idx].nulos_check[f"Festa{festa_num}"] = self.festa_modes[round_type]
+            elif round_type == "vazas":
                 self.players[player_idx].vazas = self.current_round.vazas_won[player_idx]
             elif round_type == "copas":
                 self.players[player_idx].copas = self.current_round.count_suit(player_idx, Suit.HEARTS)

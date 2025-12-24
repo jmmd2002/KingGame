@@ -1,3 +1,4 @@
+import os
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_migrate import Migrate
 
@@ -5,7 +6,7 @@ from database import db
 from models import Player
 from game_player import GamePlayer
 
-app = Flask(__name__)
+app = Flask(__name__, instance_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance'))
 app.secret_key = "your_secret_key"
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///players.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -15,6 +16,14 @@ app.jinja_env.globals.update(getattr=getattr)
 migrate = Migrate(app, db)
 
 db.init_app(app)
+
+@app.cli.command("reset-db")
+def reset_db_command():
+    """Drops and recreates the database."""
+    with app.app_context():
+        db.drop_all()
+        db.create_all()
+    print("Database has been reset.")
 
 @app.template_filter('attr')
 def attr(obj, name):

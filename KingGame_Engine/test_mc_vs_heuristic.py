@@ -39,13 +39,24 @@ def run_comparison_game(num_games=5):
             round_type = game.get_current_round_type()
             
             # Create/update AI players for this round
+            # Get festa configuration if applicable
+            trump_suit = None
+            is_nulos = None
+            if round_type in ["festa1", "festa2", "festa3", "festa4"]:
+                is_nulos_mode = game.festa_modes.get(round_type, 1)  # Default to nulos
+                is_nulos = (is_nulos_mode == 1)
+                if not is_nulos:
+                    # Positivos - get trump suit
+                    festa_num = int(round_type[-1]) - 1  # festa1->0, festa2->1, etc
+                    trump_suit = game.festa_trump_suits.get(festa_num)
+            
             for i in range(4):
                 if i == 0:
-                    # MC AI
-                    ai_players[i] = MonteCarloAI(i, round_type, num_simulations=20)
+                    # MC AI with trump_suit and is_nulos for festa
+                    ai_players[i] = MonteCarloAI(i, round_type, num_simulations=20, trump_suit=trump_suit, is_nulos=is_nulos)
                 else:
-                    # Heuristic AI
-                    ai_players[i] = AIPlayer(game.get_player_hand(i), round_type)
+                    # Heuristic AI with is_nulos for festa
+                    ai_players[i] = AIPlayer(game.get_player_hand(i), round_type, is_nulos=is_nulos)
             
             # Check if round can be played
             if not game.can_play_round():

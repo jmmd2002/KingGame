@@ -12,18 +12,21 @@ class Vaza:
 
 
 class Round:
-    def __init__(self, player_hands: list[list[Card]], round_type: str = "vazas"):
+    def __init__(self, player_hands: list[list[Card]], round_type: str = "vazas", starting_player: int = 0, trump_suit: Suit = None):
         """
         player_hands: list of 4 lists, each containing 13 Cards for that player
         round_type: "vazas", "copas", "homens", "mulheres", "king", "last", "nulos"
+        starting_player: index of player who starts the first vaza (0-3)
+        trump_suit: optional trump suit that beats all other suits (for festa positivos)
         """
         self.player_hands = player_hands  # Active hands (cards get removed)
         self.round_type = round_type
         self.vazas_won = [0, 0, 0, 0]     # Track vazas won per player
         self.cards_won: list[list[Card]] = [[], [], [], []] # Track cards won per player
-        self.vaza_starter = 0             # Which player starts current vaza
+        self.vaza_starter = starting_player  # Which player starts current vaza
         self.vazas_history: list[Vaza] = []           # History of all vazas
         self.current_vaza: Vaza = None          # Current vaza being played
+        self.trump_suit = trump_suit  # Trump suit for festa positivos
     
     def start_vaza(self) -> Vaza:
         """Start a new vaza"""
@@ -103,10 +106,31 @@ class Round:
         """
         Completes current vaza. Determines winner, updates vazas_won, 
         sets next vaza_starter, saves vaza to history.
-        Winner is the highest card of the main suit.
+        Winner is the highest trump card (if any), else highest card of main suit.
         Returns: index of the player who won this vaza
         """
-        # Find the highest card of the main suit
+        # Check for trump suit cards first (if trump suit is defined)
+        if self.trump_suit is not None:
+            trump_cards = [
+                (i, card) for i, card in enumerate(self.current_vaza.cards_played)
+                if card.suit == self.trump_suit
+            ]
+            
+            if trump_cards:
+                # Trump cards present - highest trump wins
+                winner_position, highest_card = max(trump_cards, key=lambda x: x[1].rank.value)
+                winner_player = self.current_vaza.play_order[winner_position]
+                
+                self.current_vaza.winner = winner_player
+                self.vazas_won[winner_player] += 1
+                self.cards_won[winner_player].extend(self.current_vaza.cards_played)
+                self.vaza_starter = winner_player
+                self.vazas_history.append(self.current_vaza)
+                self.current_vaza = None
+                
+                return winner_player
+        
+        # No trump cards or no trump suit - highest card of main suit wins
         main_suit_cards = [
             (i, card) for i, card in enumerate(self.current_vaza.cards_played)
             if card.suit == self.current_vaza.main_suit
