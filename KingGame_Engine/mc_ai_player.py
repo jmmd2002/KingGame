@@ -239,9 +239,10 @@ class MonteCarloAI:
             # Start fresh round with simulated hands
             sim_round = Round(player_hands_copy, self.round_type, trump_suit=self.trump_suit)
             
-            # NOTE: If we're mid-vaza, we lose context about cards already played.
-            # This is a limitation - simulations assume fresh vaza start.
-            # Future improvement: properly track and continue mid-vaza state.
+            # If we're mid-vaza, continue from current vaza state instead of restarting
+            if current_vaza and current_vaza.cards_played:
+                # Continue current vaza with remaining players
+                self._continue_current_vaza_simulation(sim_round, card_to_play, current_vaza)
             
             # Play out the round with simulated players
             self._play_out_round_simulation(sim_round)
@@ -254,6 +255,53 @@ class MonteCarloAI:
         except Exception as e:
             print(f"[ERROR in simulation] {e}")
             return 0.0
+    
+    def _continue_current_vaza_simulation(self, sim_round: Round, card_to_play: Card, current_vaza) -> None:
+        """
+        Continue simulating from the current mid-vaza state.
+        This preserves the cards already played in this vaza and their order.
+        
+        Args:
+            sim_round: The Round object to continue in
+            card_to_play: The card we're playing this turn
+            current_vaza: The current Vaza object with cards already played
+        """
+        # Start the vaza in simulation
+        sim_round.start_vaza()
+        
+        # Get the play order for remaining players in this vaza
+        all_players = [0, 1, 2, 3]
+        players_already_played = set(current_vaza.play_order) if current_vaza.play_order else set()
+        remaining_players = [p for p in all_players if p not in players_already_played]
+        
+        # Play the card from current player (me)
+        if self.my_player_index in remaining_players:
+            sim_round.current_vaza.main_suit = current_vaza.main_suit
+            sim_round.current_vaza.cards_played = [Card(c.suit, c.rank) for c in current_vaza.cards_played]
+            sim_round.current_vaza.play_order = list(current_vaza.play_order)
+            
+            sim_round.play_card(self.my_player_index, card_to_play)
+            remaining_players.remove(self.my_player_index)
+        
+        # Other remaining players play
+        for player_idx in remaining_players:
+            hand = sim_round.player_hands[player_idx]
+            
+            if not hand:
+                continue
+            
+            # Get valid plays respecting current vaza state
+            valid_plays = self._get_valid_plays(hand, sim_round.current_vaza, sim_round.round_type)
+            
+            if not valid_plays:
+                valid_plays = hand
+            
+            # Choose card using heuristic
+            card = self._choose_card_heuristic(valid_plays, sim_round.current_vaza)
+            sim_round.play_card(player_idx, card)
+        
+        # Complete the vaza
+        sim_round.complete_vaza()
     
     def _play_out_round_simulation(self, sim_round: Round):
         """
