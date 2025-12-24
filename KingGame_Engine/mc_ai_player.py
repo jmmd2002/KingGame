@@ -37,6 +37,10 @@ class MonteCarloAI:
         # Track which suits each player is void in (doesn't have)
         # Format: {player_index: {Suit.HEARTS, Suit.SPADES, ...}}
         self.suit_voids = {0: set(), 1: set(), 2: set(), 3: set()}
+        
+        # Track special constraints for special rounds
+        self.no_queens = set()  # Players who don't have queens (mulheres round)
+        self.no_men = set()     # Players who don't have jacks/kings (homens round)
     
     def _get_adaptive_sim_count(self, hand_size: int, num_valid_plays: int) -> int:
         """
@@ -81,15 +85,34 @@ class MonteCarloAI:
         # Reset suit voids at start of new round (when no cards played yet)
         if not cards_played_this_round:
             self.suit_voids = {0: set(), 1: set(), 2: set(), 3: set()}
+            self.no_queens = set()
+            self.no_men = set()
         
         # Update suit void tracking from current vaza
         if current_vaza and current_vaza.main_suit and len(current_vaza.cards_played) > 0:
             for i in range(len(current_vaza.cards_played)):
                 player_index = current_vaza.play_order[i]
                 card_played = current_vaza.cards_played[i]
+                
                 # If player didn't follow suit, they're void in that suit
                 if card_played.suit != current_vaza.main_suit:
                     self.suit_voids[player_index].add(current_vaza.main_suit)
+                    
+                    # Special round logic: detect additional voids
+                    if self.round_type == "copas":
+                        # If didn't follow suit and didn't play hearts, they're void in hearts too
+                        if card_played.suit != Suit.HEARTS:
+                            self.suit_voids[player_index].add(Suit.HEARTS)
+                    
+                    elif self.round_type == "mulheres":
+                        # If didn't follow suit and didn't play a queen, they don't have queens
+                        if card_played.rank != Rank.QUEEN:
+                            self.no_queens.add(player_index)
+                    
+                    elif self.round_type == "homens":
+                        # If didn't follow suit and didn't play jack/king, they don't have jacks/kings
+                        if card_played.rank != Rank.JACK and card_played.rank != Rank.KING:
+                            self.no_men.add(player_index)
         
         # Edge case: only one valid play
         if len(valid_plays) == 1:
@@ -232,6 +255,20 @@ class MonteCarloAI:
                         card for card in remaining_copy 
                         if card.suit not in self.suit_voids[opponent_index]
                     ]
+                    
+                    # Filter out queens if player doesn't have them (mulheres round)
+                    if opponent_index in self.no_queens:
+                        valid_for_player = [
+                            card for card in valid_for_player
+                            if card.rank != Rank.QUEEN
+                        ]
+                    
+                    # Filter out jacks/kings if player doesn't have them (homens round)
+                    if opponent_index in self.no_men:
+                        valid_for_player = [
+                            card for card in valid_for_player
+                            if card.rank != Rank.JACK and card.rank != Rank.KING
+                        ]
                     
                     # If we've over-constrained (no valid cards), fall back to all remaining
                     if not valid_for_player:
@@ -571,6 +608,29 @@ class MonteCarloAI:
         
         return best_card if best_card else valid_plays[0]
     
+    def _filter_cards_by_constraints(self, cards: list[Card], player_index: int) -> list[Card]:
+        """
+        Filter cards based on all known constraints for a player.
+        
+        Args:
+            cards: List of cards to filter
+            player_index: Player to filter for
+            
+        Returns:
+            Filtered list of cards this player could have
+        """
+        filtered = [c for c in cards if c.suit not in self.suit_voids[player_index]]
+        
+        # Filter queens if player doesn't have them
+        if player_index in self.no_queens:
+            filtered = [c for c in filtered if c.rank != Rank.QUEEN]
+        
+        # Filter jacks/kings if player doesn't have them
+        if player_index in self.no_men:
+            filtered = [c for c in filtered if c.rank != Rank.JACK and c.rank != Rank.KING]
+        
+        return filtered
+    
     def _generate_endgame_distributions(self, unknown_cards: list[Card], 
                                        opponents: list[int], hand_size: int) -> list[dict]:
         """
@@ -595,8 +655,8 @@ class MonteCarloAI:
         if num_opponents == 1:
             # Simple case: one opponent gets all unknown cards
             opponent_idx = opponents[0]
-            # Filter by suit voids
-            valid_cards = [c for c in unknown_cards if c.suit not in self.suit_voids[opponent_idx]]
+            # Filter by all constraints
+            valid_cards = self._filter_cards_by_constraints(unknown_cards, opponent_idx)
             if len(valid_cards) >= hand_size:
                 # Sample combinations
                 all_combos = list(combinations(valid_cards, min(hand_size, len(valid_cards))))
@@ -608,7 +668,7 @@ class MonteCarloAI:
         elif num_opponents == 2:
             # Two opponents: try different splits
             opponent_1, opponent_2 = opponents
-            valid_1 = [c for c in unknown_cards if c.suit not in self.suit_voids[opponent_1]]
+            valid_1 = self._filter_cards_by_constraints(unknown_cards, opponent_1)
             
             # Sample different ways to split cards
             import random
@@ -621,8 +681,8 @@ class MonteCarloAI:
                 hand_1 = shuffled[:split_point]
                 remaining = [c for c in shuffled[split_point:]]
                 
-                # Filter hand_2 by opponent_2's voids
-                hand_2 = [c for c in remaining if c.suit not in self.suit_voids[opponent_2]]
+                # Filter hand_2 by opponent_2's constraints
+                hand_2 = self._filter_cards_by_constraints(remaining, opponent_2)
                 
                 if len(hand_1) > 0 and len(hand_2) > 0:
                     distributions.append({opponent_1: hand_1, opponent_2: hand_2})
@@ -635,7 +695,7 @@ class MonteCarloAI:
                 remaining = unknown_cards.copy()
                 
                 for opp in opponents:
-                    valid = [c for c in remaining if c.suit not in self.suit_voids[opp]]
+                    valid = self._filter_cards_by_constraints(remaining, opp)
                     if valid:
                         num_cards = min(hand_size, len(valid))
                         hand = random.sample(valid, num_cards)
