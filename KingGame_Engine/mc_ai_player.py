@@ -18,7 +18,7 @@ class MonteCarloAI:
     5. Choose card with best (lowest) average score
     """
     
-    def __init__(self, my_player_index: int, round_type: str = "vazas", num_simulations: int = 100, trump_suit: Suit = None, is_nulos: bool = None):
+    def __init__(self, my_player_index: int, round_type: str = "vazas", num_simulations: int = 100):
         """
         Args:
             my_player_index: Which player am I (0-3)
@@ -29,18 +29,8 @@ class MonteCarloAI:
         """
         self.my_player_index = my_player_index
         self.round_type = round_type
-        self.is_nulos = is_nulos
         self.num_simulations = num_simulations
-        self.trump_suit = trump_suit
         self.point_manager = PointManager()
-        
-        # Track which suits each player is void in (doesn't have)
-        # Format: {player_index: {Suit.HEARTS, Suit.SPADES, ...}}
-        self.suit_voids = {0: set(), 1: set(), 2: set(), 3: set()}
-        
-        # Track special constraints for special rounds
-        self.no_queens = set()  # Players who don't have queens (mulheres round)
-        self.no_men = set()     # Players who don't have jacks/kings (homens round)
     
     def _get_adaptive_sim_count(self, hand_size: int, num_valid_plays: int) -> int:
         """
@@ -67,6 +57,48 @@ class MonteCarloAI:
         
         return min(base, 300)  # Cap at 300
     
+    def _perfect_play(self, my_hand: list[Card], valid_plays: list[Card],
+                     cards_played_this_round: list[Card], current_vaza) -> Card:
+        """
+        End-game solver: with few cards left, exhaustively search possibilities.
+        More samples than normal MC since search space is small.
+        """
+        best_card = None
+        best_score = float('inf')
+        
+        # Exponentially increase samples as cards decrease
+        # 4 cards: 100, 3 cards: 200, 2 cards: 400, 1 card: 800
+        num_samples = min(800, 50 * (2 ** (5 - len(my_hand))))
+        
+        for card in valid_plays:
+            total_score = 0
+            
+            # Run many simulations to exhaustively cover possibilities
+            for _ in range(num_samples):
+                cards_played_in_current_vaza = current_vaza.cards_played if current_vaza else []
+                players_who_played = current_vaza.play_order if current_vaza else []
+                
+                opponent_hands = self._estimate_opponent_hands(
+                    my_hand, cards_played_this_round,
+                    cards_played_in_current_vaza, players_who_played
+                )
+                
+                points = self._simulate_game(
+                    card_to_play=card,
+                    my_hand=my_hand,
+                    cards_played_this_round=cards_played_this_round,
+                    opponent_hands=opponent_hands,
+                    current_vaza=current_vaza
+                )
+                total_score += points
+            
+            avg_score = total_score / num_samples
+            if avg_score < best_score:
+                best_score = avg_score
+                best_card = card
+        
+        return best_card
+    
     def choose_card(self, my_hand: list[Card], valid_plays: list[Card], 
                    cards_played_this_round: list[Card], current_vaza) -> Card:
         """
@@ -82,45 +114,13 @@ class MonteCarloAI:
             Best Card to play
         """
         
-        # Reset suit voids at start of new round (when no cards played yet)
-        if not cards_played_this_round:
-            self.suit_voids = {0: set(), 1: set(), 2: set(), 3: set()}
-            self.no_queens = set()
-            self.no_men = set()
-        
-        # Update suit void tracking from current vaza
-        if current_vaza and current_vaza.main_suit and len(current_vaza.cards_played) > 0:
-            for i in range(len(current_vaza.cards_played)):
-                player_index = current_vaza.play_order[i]
-                card_played = current_vaza.cards_played[i]
-                
-                # If player didn't follow suit, they're void in that suit
-                if card_played.suit != current_vaza.main_suit:
-                    self.suit_voids[player_index].add(current_vaza.main_suit)
-                    
-                    # Special round logic: detect additional voids
-                    if self.round_type == "copas":
-                        # If didn't follow suit and didn't play hearts, they're void in hearts too
-                        if card_played.suit != Suit.HEARTS:
-                            self.suit_voids[player_index].add(Suit.HEARTS)
-                    
-                    elif self.round_type == "mulheres":
-                        # If didn't follow suit and didn't play a queen, they don't have queens
-                        if card_played.rank != Rank.QUEEN:
-                            self.no_queens.add(player_index)
-                    
-                    elif self.round_type == "homens":
-                        # If didn't follow suit and didn't play jack/king, they don't have jacks/kings
-                        if card_played.rank != Rank.JACK and card_played.rank != Rank.KING:
-                            self.no_men.add(player_index)
-        
         # Edge case: only one valid play
         if len(valid_plays) == 1:
             return valid_plays[0]
         
-        # ENDGAME: Use perfect play when few cards remain
+        # End-game: perfect play with ≤4 cards (exhaustive search)
         if len(my_hand) <= 4:
-            return self._choose_card_endgame(my_hand, valid_plays, cards_played_this_round, current_vaza)
+            return self._perfect_play(my_hand, valid_plays, cards_played_this_round, current_vaza)
         
         # Use adaptive simulation count based on game state
         num_sims = self._get_adaptive_sim_count(len(my_hand), len(valid_plays))
@@ -236,49 +236,16 @@ class MonteCarloAI:
             cards_per_player = total_remaining // num_to_distribute_to
             remainder = total_remaining % num_to_distribute_to
             
-            # Sort players by constraint level (fewest valid cards = most constrained)
-            # This ensures we satisfy the most constrained player first
-            def count_valid_cards(player_idx):
-                return len([c for c in remaining_copy if c.suit not in self.suit_voids[player_idx]])
-            
-            sorted_players = sorted(players_who_havent_played, key=count_valid_cards)
-            
-            for i, opponent_index in enumerate(sorted_players):
+            for i, opponent_index in enumerate(players_who_havent_played):
                 cards_to_give = cards_per_player
-                # Distribute remainder cards to first few players
-                if i < remainder:
+                if i < remainder:  # Extra cards go to first few in play order
                     cards_to_give += 1
                 
                 if cards_to_give > 0 and remaining_copy:
-                    # Filter out cards from suits this player is void in
-                    valid_for_player = [
-                        card for card in remaining_copy 
-                        if card.suit not in self.suit_voids[opponent_index]
-                    ]
-                    
-                    # Filter out queens if player doesn't have them (mulheres round)
-                    if opponent_index in self.no_queens:
-                        valid_for_player = [
-                            card for card in valid_for_player
-                            if card.rank != Rank.QUEEN
-                        ]
-                    
-                    # Filter out jacks/kings if player doesn't have them (homens round)
-                    if opponent_index in self.no_men:
-                        valid_for_player = [
-                            card for card in valid_for_player
-                            if card.rank != Rank.JACK and card.rank != Rank.KING
-                        ]
-                    
-                    # If we've over-constrained (no valid cards), fall back to all remaining
-                    if not valid_for_player:
-                        valid_for_player = remaining_copy.copy()
-                    
-                    cards_to_take = min(cards_to_give, len(valid_for_player))
-                    opponent_hand = random.sample(valid_for_player, cards_to_take)
+                    cards_to_take = min(cards_to_give, len(remaining_copy))
+                    opponent_hand = random.sample(remaining_copy, cards_to_take)
                     opponent_hands[opponent_index] = opponent_hand
                     
-                    # Remove sampled cards from remaining pool (affects next players)
                     for card in opponent_hand:
                         remaining_copy.remove(card)
         
@@ -314,12 +281,15 @@ class MonteCarloAI:
         # Create a Round to simulate from current state
         try:
             # Start fresh round with simulated hands
-            sim_round = Round(player_hands_copy, self.round_type, trump_suit=self.trump_suit)
+            sim_round = Round(player_hands_copy, self.round_type)
             
-            # If we're mid-vaza, continue from current vaza state instead of restarting
-            if current_vaza and current_vaza.cards_played:
-                # Continue current vaza with remaining players
-                self._continue_current_vaza_simulation(sim_round, card_to_play, current_vaza)
+            # Copy current vaza state if in middle of vaza
+            if current_vaza.cards_played:
+                # We're in middle of a vaza, need to continue it
+                # For simplicity, finish this vaza with random/AI moves
+                sim_round.current_vaza = current_vaza.__dict__.copy()
+                # This is complex - for now, let's start fresh vaza
+                pass
             
             # Play out the round with simulated players
             self._play_out_round_simulation(sim_round)
@@ -332,53 +302,6 @@ class MonteCarloAI:
         except Exception as e:
             print(f"[ERROR in simulation] {e}")
             return 0.0
-    
-    def _continue_current_vaza_simulation(self, sim_round: Round, card_to_play: Card, current_vaza) -> None:
-        """
-        Continue simulating from the current mid-vaza state.
-        This preserves the cards already played in this vaza and their order.
-        
-        Args:
-            sim_round: The Round object to continue in
-            card_to_play: The card we're playing this turn
-            current_vaza: The current Vaza object with cards already played
-        """
-        # Start the vaza in simulation
-        sim_round.start_vaza()
-        
-        # Get the play order for remaining players in this vaza
-        all_players = [0, 1, 2, 3]
-        players_already_played = set(current_vaza.play_order) if current_vaza.play_order else set()
-        remaining_players = [p for p in all_players if p not in players_already_played]
-        
-        # Play the card from current player (me)
-        if self.my_player_index in remaining_players:
-            sim_round.current_vaza.main_suit = current_vaza.main_suit
-            sim_round.current_vaza.cards_played = [Card(c.suit, c.rank) for c in current_vaza.cards_played]
-            sim_round.current_vaza.play_order = list(current_vaza.play_order)
-            
-            sim_round.play_card(self.my_player_index, card_to_play)
-            remaining_players.remove(self.my_player_index)
-        
-        # Other remaining players play
-        for player_idx in remaining_players:
-            hand = sim_round.player_hands[player_idx]
-            
-            if not hand:
-                continue
-            
-            # Get valid plays respecting current vaza state
-            valid_plays = self._get_valid_plays(hand, sim_round.current_vaza, sim_round.round_type)
-            
-            if not valid_plays:
-                valid_plays = hand
-            
-            # Choose card using heuristic
-            card = self._choose_card_heuristic(valid_plays, sim_round.current_vaza)
-            sim_round.play_card(player_idx, card)
-        
-        # Complete the vaza
-        sim_round.complete_vaza()
     
     def _play_out_round_simulation(self, sim_round: Round):
         """
@@ -471,9 +394,6 @@ class MonteCarloAI:
         """
         # Determine if it's nulos for festa rounds
         is_nulos = None
-        if self.round_type in ["festa1", "festa2", "festa3", "festa4"]:
-            # If no trump_suit, it's nulos (avoid vazas)
-            is_nulos = (self.trump_suit is None)
         
         # Use actual heuristic AI for realistic play
         ai = AIPlayer(valid_plays, self.round_type, is_nulos=is_nulos)
@@ -513,197 +433,31 @@ class MonteCarloAI:
             return self.point_manager.get_points("king", 1 if has_king else 0)
         
         elif self.round_type == "last":
-            # Last round: count final 2 vazas (12th and 13th, indices 11-12)
-            count = 0
-            
-            history = sim_round.vazas_history
-            
-            # Check 12th vaza (index 11)
-            if len(history) >= 12:
-                if history[11].winner == self.my_player_index:
+            # Last round: count final 2 vazas
+            if len(sim_round.vazas_history) >= 2:
+                last_vaza_winner = sim_round.vazas_history[-1].winner
+                second_last_vaza_winner = sim_round.vazas_history[-2].winner
+                
+                count = 0
+                if last_vaza_winner == self.my_player_index:
                     count += 1
-            
-            # Check 13th vaza (index 12)
-            if len(history) >= 13:
-                if history[12].winner == self.my_player_index:
+                if second_last_vaza_winner == self.my_player_index:
                     count += 1
-            
-            return self.point_manager.get_points("last", count)
+                
+                return self.point_manager.get_points("last", count)
         
         elif self.round_type in ["festa1", "festa2", "festa3", "festa4"]:
-            # Festa rounds: calculate points based on nulos/positivo mode
+            # Festa rounds: use actual point values for proper comparison with other rounds
+            # This ensures festa decisions have appropriate weight relative to base rounds
             count = sim_round.vazas_won[self.my_player_index]
             
-            # Use stored is_nulos flag set during initialization
-            return self.point_manager.get_points_nulos(count, nulos=self.is_nulos)
+            if self.is_nulos:
+                # Nulos: 325 - 75*vazas (lower score with more vazas)
+                # Return as-is so MC minimizes = fewer vazas
+                return self.point_manager.get_points_nulos(count, nulos=True)
+            else:
+                # Positivos: 25 points per vaza (positive score)
+                # Negate so MC minimizes negative = maximizes vazas
+                return -self.point_manager.get_points("positivo", count)
         
         return 0.0
-    
-    def _choose_card_endgame(self, my_hand: list[Card], valid_plays: list[Card],
-                            cards_played_this_round: list[Card], current_vaza) -> Card:
-        """
-        Perfect play for endgame using exhaustive enumeration.
-        
-        When few cards remain, we can enumerate all possible opponent hands
-        and calculate exact outcomes instead of sampling.
-        
-        Strategy: Minimax - choose card that gives best worst-case outcome.
-        """
-        from itertools import combinations
-        
-        # Get unknown cards
-        cards_played_in_current_vaza = current_vaza.cards_played if current_vaza else []
-        players_who_played = current_vaza.play_order if current_vaza else []
-        
-        my_hand_set = {(c.suit, c.rank) for c in my_hand}
-        cards_played_set = {(c.suit, c.rank) for c in cards_played_this_round}
-        current_vaza_set = {(c.suit, c.rank) for c in cards_played_in_current_vaza}
-        
-        all_card_tuples = set()
-        for suit in Suit:
-            for rank in Rank:
-                all_card_tuples.add((suit, rank))
-        
-        unknown_tuples = all_card_tuples - my_hand_set - cards_played_set - current_vaza_set
-        unknown_cards = [Card(suit, rank) for suit, rank in unknown_tuples]
-        
-        # Identify opponents who haven't played yet
-        opponents = [i for i in range(4) if i != self.my_player_index and i not in players_who_played]
-        
-        if not opponents:
-            # No opponents left to play in this vaza, just play first valid card
-            return valid_plays[0]
-        
-        # Generate all valid hand distributions
-        distributions = self._generate_endgame_distributions(unknown_cards, opponents, len(my_hand))
-        
-        if not distributions:
-            # Fallback to first valid card if we can't enumerate
-            return valid_plays[0]
-        
-        # Evaluate each valid play against all possible distributions
-        best_card = None
-        best_avg_score = float('inf')
-        
-        for card in valid_plays:
-            total_score = 0
-            
-            # Test this card against all possible opponent hands
-            for opponent_hands in distributions:
-                score = self._simulate_game(
-                    card_to_play=card,
-                    my_hand=my_hand,
-                    cards_played_this_round=cards_played_this_round,
-                    opponent_hands=opponent_hands,
-                    current_vaza=current_vaza
-                )
-                total_score += score
-            
-            # Average score across all possible distributions
-            avg_score = total_score / len(distributions)
-            
-            if avg_score < best_avg_score:
-                best_avg_score = avg_score
-                best_card = card
-        
-        return best_card if best_card else valid_plays[0]
-    
-    def _filter_cards_by_constraints(self, cards: list[Card], player_index: int) -> list[Card]:
-        """
-        Filter cards based on all known constraints for a player.
-        
-        Args:
-            cards: List of cards to filter
-            player_index: Player to filter for
-            
-        Returns:
-            Filtered list of cards this player could have
-        """
-        filtered = [c for c in cards if c.suit not in self.suit_voids[player_index]]
-        
-        # Filter queens if player doesn't have them
-        if player_index in self.no_queens:
-            filtered = [c for c in filtered if c.rank != Rank.QUEEN]
-        
-        # Filter jacks/kings if player doesn't have them
-        if player_index in self.no_men:
-            filtered = [c for c in filtered if c.rank != Rank.JACK and c.rank != Rank.KING]
-        
-        return filtered
-    
-    def _generate_endgame_distributions(self, unknown_cards: list[Card], 
-                                       opponents: list[int], hand_size: int) -> list[dict]:
-        """
-        Generate all valid opponent hand distributions for endgame.
-        
-        Returns:
-            List of dictionaries mapping opponent_index -> hand
-        """
-        from itertools import combinations
-        
-        distributions = []
-        num_opponents = len(opponents)
-        
-        # Each opponent should have approximately hand_size cards
-        # For simplicity in endgame, assume equal distribution
-        cards_per_opponent = len(unknown_cards) // num_opponents if num_opponents > 0 else 0
-        
-        # Limit number of distributions to avoid combinatorial explosion
-        # Sample at most 100 distributions
-        max_distributions = 100
-        
-        if num_opponents == 1:
-            # Simple case: one opponent gets all unknown cards
-            opponent_idx = opponents[0]
-            # Filter by all constraints
-            valid_cards = self._filter_cards_by_constraints(unknown_cards, opponent_idx)
-            if len(valid_cards) >= hand_size:
-                # Sample combinations
-                all_combos = list(combinations(valid_cards, min(hand_size, len(valid_cards))))
-                import random
-                sampled = random.sample(all_combos, min(max_distributions, len(all_combos)))
-                for combo in sampled:
-                    distributions.append({opponent_idx: list(combo)})
-        
-        elif num_opponents == 2:
-            # Two opponents: try different splits
-            opponent_1, opponent_2 = opponents
-            valid_1 = self._filter_cards_by_constraints(unknown_cards, opponent_1)
-            
-            # Sample different ways to split cards
-            import random
-            attempts = min(max_distributions, 50)
-            for _ in range(attempts):
-                # Random split
-                shuffled = valid_1.copy()
-                random.shuffle(shuffled)
-                split_point = len(shuffled) // 2
-                hand_1 = shuffled[:split_point]
-                remaining = [c for c in shuffled[split_point:]]
-                
-                # Filter hand_2 by opponent_2's constraints
-                hand_2 = self._filter_cards_by_constraints(remaining, opponent_2)
-                
-                if len(hand_1) > 0 and len(hand_2) > 0:
-                    distributions.append({opponent_1: hand_1, opponent_2: hand_2})
-        
-        else:
-            # 3+ opponents: use random sampling (too many combinations)
-            import random
-            for _ in range(max_distributions):
-                dist = {}
-                remaining = unknown_cards.copy()
-                
-                for opp in opponents:
-                    valid = self._filter_cards_by_constraints(remaining, opp)
-                    if valid:
-                        num_cards = min(hand_size, len(valid))
-                        hand = random.sample(valid, num_cards)
-                        dist[opp] = hand
-                        for card in hand:
-                            remaining.remove(card)
-                
-                if len(dist) == num_opponents:
-                    distributions.append(dist)
-        
-        return distributions if distributions else []

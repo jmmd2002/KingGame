@@ -5,68 +5,13 @@ Use this when playing King with physical cards.
 The program tracks game state and validates plays but doesn't show human player hands.
 """
 
-from game import Game
+from game_simulator import Round
 from deck import Card, Suit, Rank
 from mc_ai_player import MonteCarloAI
+from game_player import GamePlayer
 
-
-def card_from_string(card_str: str) -> Card | None:
-    """
-    Parse a card from string format.
-    
-    Converts string representations like '1H', '13S', 'AH', 'KS' into Card objects.
-    
-    Parameters
-    ----------
-    card_str : str
-        String representation of a card. Accepted formats:
-        - Number + Suit: '2H', '10D', '13C', '14S' (rank value 2-14 + suit)
-        - Letter + Suit: 'AH' (Ace), 'KS' (King), 'QD' (Queen), 'JC' (Jack)
-        Suits: H=Hearts, D=Diamonds, C=Clubs, S=Spades
-    
-    Returns
-    -------
-    Card or None
-        Card object if parsing succeeds, None if the string is invalid.
-    
-    Examples
-    --------
-    >>> card_from_string('AH')  # Ace of Hearts
-    >>> card_from_string('10D')  # 10 of Diamonds
-    >>> card_from_string('KS')  # King of Spades
-    """
-    card_str = card_str.strip().upper()
-    
-    if len(card_str) < 2:
-        return None
-    
-    # Extract suit (last character)
-    suit_char = card_str[-1]
-    rank_str = card_str[:-1]
-    
-    # Parse suit
-    suit_map = {'H': Suit.HEARTS, 'D': Suit.DIAMONDS, 'C': Suit.CLUBS, 'S': Suit.SPADES}
-    if suit_char not in suit_map:
-        return None
-    suit = suit_map[suit_char]
-    
-    # Parse rank
-    rank: Rank | None = None
-    if rank_str.isdigit():
-        rank_value = int(rank_str)
-        for r in Rank:
-            if r.value == rank_value:
-                rank = r
-                break
-    else:
-        # Letter format
-        letter_map = {'A': Rank.ACE, 'K': Rank.KING, 'Q': Rank.QUEEN, 'J': Rank.JACK}
-        rank = letter_map.get(rank_str)
-    
-    if rank is None:
-        return None
-    
-    return Card(suit, rank)
+# Define the order of rounds in a King game
+ROUND_ORDER = ["vazas", "copas", "homens", "mulheres", "king", "last", "festa1", "festa2", "festa3", "festa4"]
 
 
 def display_card_list(cards: list[Card], sort: bool = True) -> str:
@@ -88,7 +33,7 @@ def get_all_cards() -> list[Card]:
 def setup_players() -> tuple[list[str], list[bool]]:
     """Let user choose player names and types (human vs AI)"""
     players = []
-    is_ai = [False, False, False, False]
+    player_is_ai = [False, False, False, False]
     
     print("=" * 80)
     print("SETUP: Player Configuration")
@@ -108,72 +53,12 @@ def setup_players() -> tuple[list[str], list[bool]]:
         # Get player type - human or ai
         choice = input(f"  {name} - (h)uman or (a)i? [default: human]: ").strip().lower()
         if choice == 'a':
-            is_ai[i] = True
+            player_is_ai[i] = True
             print(f"  -> {name} will be AI\n")
         else:
             print(f"  -> {name} will be HUMAN (real player)\n")
     
-    return players, is_ai
-
-
-def input_ai_hands(players: list[str], is_ai: list[bool], game : Game) -> None:
-    """Input the actual cards dealt to AI players in real life"""
-    print("=" * 80)
-    print("INPUT AI PLAYER HANDS")
-    print("=" * 80)
-    print("Enter the 13 cards dealt to each AI player in real life.")
-    print("This allows the AI to make decisions based on their actual hand.\n")
-    
-    for player_idx in range(4):
-        if not is_ai[player_idx]:
-            continue
-        
-        print(f"{players[player_idx]}'s hand (13 cards):")
-        print("  Enter cards separated by spaces (e.g., AH KS 7D 10C ...)")
-        print("  Or type 'help' for card format examples\n")
-        
-        while True:
-            cards_input = input(f"  Cards for {players[player_idx]}: ").strip()
-            
-            if cards_input.lower() == 'help':
-                print("\n  Card format examples:")
-                print("    - Number + Suit: 2H, 10D, 13C, 14S")
-                print("    - Letter + Suit: AH (Ace), KS (King), QD (Queen), JC (Jack)")
-                print("    - Suits: H=Hearts, D=Diamonds, C=Clubs, S=Spades")
-                print("    - Example input: AH KS 7D 10C 2H 3S 9D QH JC 4D 5H 6S 8C\n")
-                continue
-            
-            # Parse the cards
-            card_strings = cards_input.split()
-            
-            if len(card_strings) != 13:
-                print(f"  ❌ You must enter exactly 13 cards. You entered {len(card_strings)}.\n")
-                continue
-            
-            # Convert strings to Card objects
-            cards: list[Card] = []
-            invalid = False
-            for card_str in card_strings:
-                card = card_from_string(card_str)
-                if card is None:
-                    print(f"  ❌ Invalid card format: '{card_str}'\n")
-                    invalid = True
-                    break
-                if card in cards:
-                    print(f"  ❌ Duplicate card: {card}\n")
-                    invalid = True
-                    break
-                cards.append(card)
-            
-            if invalid:
-                continue
-            
-            # Update the game's internal hand for this AI player
-            game.current_round.player_hands[player_idx] = cards
-            print(f"  ✓ Hand set for {players[player_idx]}: {display_card_list(cards)}\n")
-            break
-    
-    print("All AI hands configured!\n")
+    return players, player_is_ai
 
 
 def configure_festa_round(festa_name: str, players: list[str]) -> tuple[int, bool, Suit]:
@@ -269,13 +154,19 @@ def configure_festa_round(festa_name: str, players: list[str]) -> tuple[int, boo
     
     return starter, is_nulos, trump_suit
 
-def real_life_game():
+def start_game():
     """Play King with physical cards - track game state and validate plays"""
     
     # Get players - names and types (human vs AI)
-    players, is_ai = setup_players()
+    player_names, player_is_ai = setup_players()
     
-    
+    # Game state variables
+    players: list[GamePlayer] = [GamePlayer(i, name, player_is_ai[i]) for i, name in enumerate(player_names)]
+    starting_player = 0  # Will be set later
+    round_index = 0
+    current_round: Round = None
+    round_results: list[dict] = []  # Store results of each round
+    cumulative_points = [0, 0, 0, 0]
     
     print("\n" + "=" * 80)
     print("REAL-LIFE KING GAME ASSISTANT")
@@ -287,50 +178,34 @@ def real_life_game():
     print("  4. For AI players, the computer will show which card to play")
     print("  5. Type 'help' at any time for card format examples")
     print("=" * 80)
-    player_types = ', '.join([f'{players[i]} ({"AI" if is_ai[i] else "HUMAN"})' for i in range(4)])
+    player_types = ', '.join([f'{player_names[i]} ({"AI" if player_is_ai[i] else "HUMAN"})' for i in range(4)])
     print(f"\nPlayers: {player_types}\n")
-
-    # Create game with custom starting player
-    game = Game(players)
     
-    # Create AI players for AI positions
-    ai_players = {}
-    for i in range(4):
-        if is_ai[i]:
-            ai_players[i] = None  # Will be created when round starts
-    
-    while not game.is_game_over():
-
-        round_type = game.current_round.round_type
+    for round_type in ROUND_ORDER:
+        
+        # Create round
+        current_round = Round(round_type, players)
+        current_round.start()
 
         # Create/update AI players for this round
+        ai_players: dict[int, MonteCarloAI] = {}
         for i in range(4):
-            if is_ai[i]:
+            if players[i].is_ai:
                 ai_players[i] = MonteCarloAI(i, round_type, num_simulations=30)
-        input("Press Enter when cards are dealt in real life...")
-        input_ai_hands(players, is_ai, game)
 
         cards_played_round: list[Card] = []
-        
-        # Check if round can be played
-        #if not game.can_play_round():
-        #    print("\n" + "=" * 80)
-        #    print(f"ROUND: {round_type.upper()} - SKIPPED (no cards available)")
-        #    print("=" * 80)
-        #    game.skip_round()
-        #    continue
         
         print("\n" + "=" * 80)
         print(f"ROUND: {round_type.upper()}")
         print("=" * 80)
-        print(f"Objective: {get_round_description(round_type, game)}\n")
+        print(f"Objective: {get_round_description(round_type)}\n")
         
         # Play all 13 vazas in this round
         for vaza_num in range(13):
-            info = game.get_next_vaza_info()
+            info = current_round.get_next_vaza_info()
             
             # START VAZA
-            game.current_round.start_vaza()
+            current_round.start_vaza()
             
             print("=" * 80)
             print(f"VAZA {vaza_num+1}")
@@ -343,14 +218,11 @@ def real_life_game():
                 print(f"Cards played in previous vazas: {len(cards_played_round)} cards")
             print()
             
-            # Get card plays for this vaza
-            card_plays: list[tuple[int, Card]] = []
-            
             for player_idx in info['play_order']:
-                if is_ai[player_idx]:
-                    # AI decides
-                    hand = game.get_player_hand(player_idx)
-                    valid_plays = game.get_valid_plays(player_idx)
+                if players[player_idx].is_ai:
+
+                    hand = current_round.get_player_hand(player_idx)
+                    valid_plays = current_round.get_valid_plays(player_idx)
                     
                     # Safety check: ensure AI has cards to play
                     if not valid_plays:
@@ -362,21 +234,11 @@ def real_life_game():
                     card = ai_players[player_idx].choose_card(
                         my_hand=hand,
                         valid_plays=valid_plays,
-                        cards_played_this_round=None, #TODO
-                        current_vaza=game.current_round.current_vaza
+                        current_vaza=current_round.current_vaza
                     )
                     
-                    # Safety check: verify AI chose a card from its hand
-                    if card not in hand:
-                        print(f"❌ ERROR: AI chose {card} but it's not in their hand!")
-                        print(f"   Hand: {display_card_list(hand)}")
-                        print(f"   This should not happen. Please report this bug.")
-                        continue
-                    
-                    # Add card to current vaza for next player to see
-                    game.current_round.current_vaza.cards_played.append(card)
-                    game.current_round.current_vaza.play_order.append(player_idx)
-                    card_plays.append((player_idx, card))
+                    # Play the card in the vaza
+                    current_round.play_card(player_idx, card)
                     cards_played_round.append(card)
 
                     print(f">>> {players[player_idx]} (AI) plays: {card}")
@@ -385,13 +247,9 @@ def real_life_game():
                     # Human player - get input for which card they played
                     print(f"{players[player_idx]}'s turn:")
                     
-                    # Show the main suit if already established
-                    if game.current_round.current_vaza.main_suit:
-                        print(f"  Main suit this vaza: {game.current_round.current_vaza.main_suit.name}")
-                    
                     # Show what's been played so far in this vaza (in play order)
-                    if game.current_round.current_vaza.cards_played:
-                        print(f"  Cards played this vaza: {display_card_list(game.current_round.current_vaza.cards_played, sort=False)}")
+                    if current_round.current_vaza.cards_played:
+                        print(f"  Cards played this vaza: {display_card_list(current_round.current_vaza.cards_played, sort=False)}")
                     
                     while True:
                         choice = input(f"  Which card did {players[player_idx]} play? (or 'help'): ").strip()
@@ -405,7 +263,7 @@ def real_life_game():
                             print("                '7D' = 7 of Diamonds, '10S' = 10 of Spades\n")
                             continue
                         
-                        card = card_from_string(choice)
+                        card = Card.from_string(choice)
                         
                         if card is None:
                             print(f"  ❌ Invalid card format. Try again (or type 'help')\n")
@@ -418,22 +276,20 @@ def real_life_game():
                             if override != 'y':
                                 continue
 
-                        # Add card to current vaza
-                        game.current_round.current_vaza.cards_played.append(card)
-                        game.current_round.current_vaza.play_order.append(player_idx)
-                        card_plays.append((player_idx, card))
+                        # Play the card in the vaza
+                        current_round.play_card(player_idx, card)
                         cards_played_round.append(card)
 
                         print(f"  ✓ {players[player_idx]} plays: {card}\n")
                         break
             
-            # Play vaza (use appropriate validation based on mode)
-            winner = game.play_vaza(card_plays)
+            # Determine winner and update round state
+            winner = current_round.get_vaza_winner()
             
             print(f"🏆 Vaza won by: {players[winner]}")
-            print(f"Vazas won so far: {', '.join([f'{players[i]}: {game.current_round.vazas_won[i]}' for i in range(4)])}\n")
+            print(f"Vazas won so far: {', '.join([f'{players[i]}: {current_round.vazas_won[i]}' for i in range(4)])}\n")
             
-            if not game.is_round_over():
+            if not current_round.is_round_over():
                 input("Press Enter for next vaza...")
                 print()
         
@@ -479,7 +335,7 @@ def real_life_game():
     print("=" * 80)
 
 
-def get_round_description(round_type: str, game=None) -> str:
+def get_round_description(round_type: str) -> str:
     """Get description of what to avoid/collect in each round"""
     descriptions = {
         "vazas": "Avoid winning vazas",
@@ -489,13 +345,7 @@ def get_round_description(round_type: str, game=None) -> str:
         "king": "Avoid the King of Hearts (K♥)",
         "last": "Avoid winning the last vaza"
     }
-    
-    if round_type in ["festa1", "festa2", "festa3", "festa4"]:
-        if game and not game.is_festa_nulos(round_type): #TODO
-            return f"FESTA {round_type[-1]} - POSITIVOS: Try to WIN vazas!"
-        else:
-            return f"FESTA {round_type[-1]} - NULOS: Avoid winning vazas"
-    
+
     return descriptions.get(round_type, "")
 
 
@@ -525,4 +375,4 @@ def get_round_detail(round_type: str, current_round, player_idx: int) -> str:
 
 
 if __name__ == "__main__":
-    real_life_game()
+    start_game()

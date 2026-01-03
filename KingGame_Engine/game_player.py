@@ -2,9 +2,10 @@ from point_manager import PointManager
 
 class GamePlayer():
 
-    def __init__(self, id: int, name: str) -> None:
+    def __init__(self, id: int, name: str, is_ai: bool = False) -> None:
         self.id = id
         self.name = name
+        self.is_ai = is_ai
 
         self.vazas = 0
         self.copas = 0

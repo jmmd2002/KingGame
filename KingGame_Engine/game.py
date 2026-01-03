@@ -7,7 +7,7 @@ from game_player import GamePlayer
 class Game:
     ROUND_ORDER = ["vazas", "copas", "homens", "mulheres", "king", "last", "festa1", "festa2", "festa3", "festa4"]
     
-    def __init__(self, player_names: list[str], starting_player: int = 0):
+    def __init__(self, player_names: list[str]):
         # Track festa modes: 1=nulos (negative), 0=positivos (positive)
         self.festa_modes = {"festa1": 1, "festa2": 1, "festa3": 1, "festa4": 1}
         # Track festa starting players
@@ -20,35 +20,46 @@ class Game:
         """
         self.player_names = player_names
         self.players = [GamePlayer(i, name) for i, name in enumerate(player_names)]
+        self.starting_player = 0  # Will be set later
         self.round_index = 0
-        self.current_round = None
         self.round_results: list[dict] = []  # Store results of each round
         self.cumulative_points = [0, 0, 0, 0]
-        self.starting_player = starting_player
-        
-        self._start_round()
+        self.current_round = Round(self.ROUND_ORDER[0], self.starting_player)
     
-    def _start_round(self):
+    def start_round(self):
         """Start a new round"""
         if self.round_index < len(self.ROUND_ORDER):
-            deck = Deck()
-            player_hands = deck.distribute()
-            round_type = self.ROUND_ORDER[self.round_index]
-            
             # Determine starting player
             if self.round_index == 0:
-                starter = self.starting_player
-            elif round_type in ["festa1", "festa2", "festa3", "festa4"]:
-                starter = self.festa_starters.get(round_type, 0)
+                self.starting_player = self.select_starting_player(self.player_names)
             else:
-                starter = self.current_round.vaza_starter
+                self.starting_player = (self.current_round.starting_player + 1) % len(self.player_names)
+
+    def select_starting_player(self, players: list[str]) -> int:
+        """Let user choose which player starts the first round"""
+        print("=" * 80)
+        print("SELECT STARTING PLAYER")
+        print("=" * 80)
+        print("Who should start the first round?\n")
+        
+        for i, player in enumerate(players):
+            print(f"  [{i+1}] {player}")
+        
+        print()
+        while True:
+            choice = input(f"Select starting player (1-4) [default: 1]: ").strip()
             
-            # Get trump suit for festa positivos rounds
-            trump_suit = None
-            if round_type in ["festa1", "festa2", "festa3", "festa4"]:
-                trump_suit = self.festa_trump_suits.get(round_type)
+            if choice == '':
+                print(f"\n✓ {players[0]} will start the first round\n")
+                return 0
             
-            self.current_round = Round(player_hands, round_type, starter, trump_suit)
+            if choice.isdigit():
+                idx = int(choice) - 1
+                if 0 <= idx < 4:
+                    print(f"\n✓ {players[idx]} will start the first round\n")
+                    return idx
+            
+            print("Invalid choice. Please enter 1, 2, 3, or 4.\n")
     
     def set_festa_config(self, festa_name: str, starter: int, is_nulos: bool, trump_suit: Suit = None):
         """Configure a festa round before it starts"""
@@ -163,30 +174,31 @@ class Game:
         return self.current_round.is_round_over()
     
     def can_play_round(self) -> bool:
+        #TODO have to redo this
         """Check if current round can be played (required cards are still available)"""
-        round_type = self.get_current_round_type()
+        round_type = self.current_round.round_type
         
         if round_type == "copas":
             # Check if any hearts are left in remaining cards
-            for hand in self.current_round.player_hands:
+            for hand in self.current_round.cards_played:
                 if any(card.suit == Suit.HEARTS for card in hand):
                     return True
             return False
         elif round_type == "homens":
             # Check if any jacks or kings are left
-            for hand in self.current_round.player_hands:
+            for hand in self.current_round.cards_played:
                 if any(card.rank == Rank.JACK or card.rank == Rank.KING for card in hand):
                     return True
             return False
         elif round_type == "mulheres":
             # Check if any queens are left
-            for hand in self.current_round.player_hands:
+            for hand in self.current_round.cards_played:
                 if any(card.rank == Rank.QUEEN for card in hand):
                     return True
             return False
         elif round_type == "king":
             # Check if King of Hearts is left
-            for hand in self.current_round.player_hands:
+            for hand in self.current_round.cards_played:
                 if any(card.rank == Rank.KING and card.suit == Suit.HEARTS for card in hand):
                     return True
             return False
