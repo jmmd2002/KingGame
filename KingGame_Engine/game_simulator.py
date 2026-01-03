@@ -463,6 +463,13 @@ class Round:
                 if not has_main_suit and has_women and card.rank != Rank.QUEEN:
                     continue
                 valid.append(card)
+            elif self.round_type == "king":
+                if has_main_suit and card.suit != self.current_vaza.main_suit:
+                    continue
+                has_king_of_hearts = any(c.suit == Suit.HEARTS and c.rank == Rank.KING for c in hand)
+                if not has_main_suit and has_king_of_hearts and not (card.suit == Suit.HEARTS and card.rank == Rank.KING):
+                    continue
+                valid.append(card)
             else:
                 # Default: follow suit
                 if has_main_suit and card.suit != self.current_vaza.main_suit:
