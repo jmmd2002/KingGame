@@ -228,6 +228,27 @@ class Deck:
         self.cards = []
         self._create_deck()
     
+    @staticmethod
+    def get_all_cards() -> list[Card]:
+        """
+        Get a list of all 52 cards in a standard deck.
+        
+        Returns
+        -------
+        list[Card]
+            List containing all 52 cards (unshuffled, in suit/rank order).
+        
+        Notes
+        -----
+        This is a static method that creates cards without requiring a Deck instance.
+        Useful for getting all possible cards for analysis or comparison.
+        """
+        cards = []
+        for suit in Suit:
+            for rank in Rank:
+                cards.append(Card(suit, rank))
+        return cards
+    
     def _create_deck(self) -> None:
         """
         Create all 52 cards and shuffle the deck.
@@ -240,10 +261,7 @@ class Deck:
         This method clears any existing cards and creates a fresh deck
         of 52 cards (4 suits × 13 ranks).
         """
-        self.cards = []
-        for suit in Suit:
-            for rank in Rank:
-                self.cards.append(Card(suit, rank))
+        self.cards = Deck.get_all_cards()
         random.shuffle(self.cards)
     
     def reset(self) -> None:

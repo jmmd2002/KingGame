@@ -1,5 +1,7 @@
 from deck import Card, Deck, Suit, Rank
 from game_player import GamePlayer
+from point_manager import PointManager
+
 
 class Vaza:
     """
@@ -14,10 +16,8 @@ class Vaza:
         The sequential number of this vaza in the round (1-13).
     starter : int
         Index (0-3) of the player who starts this vaza.
-    cards_played : list[Card]
-        Cards played in this vaza, in play order.
-    play_order : list[int]
-        Player indices in the order they played cards.
+    card_plays : list[tuple[int, Card]]
+        List of (player_index, card) tuples representing plays in order.
     main_suit : Suit or None
         The suit of the first card played (determines which suit must be followed).
     winner : int or None
@@ -35,24 +35,65 @@ class Vaza:
         starter : int
             Index (0-3) of the player who starts this vaza.
         """
-        self.vaza_number = vaza_number
-        self.starter = starter
-        self.card_plays: list[tuple[int, Card]] = []  # Merged list of (player, card) tuples
-        self.main_suit: Suit = None     # Suit of first card played
+        self.vaza_number: int = vaza_number
+        self.starter: int = starter
+        self.card_plays: list[tuple[int, Card]] = []
+        self.main_suit: Suit = None
         self.winner: int = None
     
     @property
     def cards_played(self) -> list[Card]:
-        """Get list of cards played in this vaza (derived from card_plays)"""
+        """
+        Get list of cards played in this vaza (derived from card_plays).
+        
+        Returns
+        -------
+        list[Card]
+            Cards in play order.
+        """
         return [card for _, card in self.card_plays]
     
     @property
     def play_order(self) -> list[int]:
-        """Get list of player indices in play order (derived from card_plays)"""
+        """
+        Get list of player indices in play order (derived from card_plays).
+        
+        Returns
+        -------
+        list[int]
+            Player indices in the order they played cards.
+        """
         return [player_idx for player_idx, _ in self.card_plays]
 
 
 class Round:
+    """
+    Represents a single round of the King card game.
+    
+    Manages the state and logic for one complete round (13 vazas). Tracks
+    which cards have been won by each player, validates plays, and calculates
+    points based on the round type.
+    
+    Attributes
+    ----------
+    round_type : str
+        Type of round being played ("vazas", "copas", "homens", "mulheres", "king", "last").
+    players : list[GamePlayer]
+        List of 4 GamePlayer objects.
+    vazas_won : list[int]
+        Count of vazas won by each player [p0, p1, p2, p3].
+    cards_won : list[list[Card]]
+        Cards won by each player [[p0_cards], [p1_cards], [p2_cards], [p3_cards]].
+    starting_player : int
+        Index (0-3) of the player who starts the current vaza.
+    vazas_history : list[Vaza]
+        History of all completed vazas in this round.
+    current_vaza : Vaza or None
+        The vaza currently being played (None if no active vaza).
+    trump_suit : Suit or None
+        Trump suit for festa rounds (None for non-festa rounds).
+    """
+    
     def __init__(self, round_type: str = "vazas", players: list[GamePlayer] = None) -> None:
         """
         Initialize a new round of the card game.
@@ -63,7 +104,7 @@ class Round:
             Type of round being played. Valid values are: "vazas", "copas",
             "homens", "mulheres", "king", "last", "nulos", "festa1", "festa2",
             "festa3", "festa4" (default is "vazas").
-        players : list, optional
+        players : list[GamePlayer], optional
             List of 4 GamePlayer objects (default is None).
         
         Notes
@@ -71,96 +112,41 @@ class Round:
         For festa rounds ("festa1", "festa2", "festa3", "festa4"), the user
         will be prompted to select a trump suit.
         """
-        self.deck = Deck()
-        self.player_hands = self.deck.distribute(4)  # Active hands (cards get removed)
-        self.round_type = round_type
-        self.players = players if players else []
-        self.vazas_won = [0, 0, 0, 0]     # Track vazas won per player
-        self.cards_won: list[list[Card]] = [[], [], [], []] # Track cards won per player
-        self.starting_player = 0  # Will be set in start()
-        self.vazas_history: list[Vaza] = []           # History of all vazas
-        self.current_vaza: Vaza = None          # Current vaza being played
-        self.trump_suit = None  # Trump suit for festa positivos
+        self.round_type: str = round_type
+        self.players: list[GamePlayer] = players if players else []
+        self.vazas_won: list[int] = [0, 0, 0, 0]
+        self.cards_won: list[list[Card]] = [[], [], [], []]
+        self.starting_player: int = 0
+        self.vazas_history: list[Vaza] = []
+        self.current_vaza: Vaza = None
+        self.trump_suit: Suit = None
+        
         if round_type in ["festa1", "festa2", "festa3", "festa4"]:
             self.trump_suit = self._select_trump_suit(round_type)
     
-    def start(self):
+    def start(self) -> None:
         """
-        Start the round by selecting starting player and inputting AI hands.
+        Start the round by selecting starting player.
+        
+        Prompts user to select which player will start the round,
+        then waits for cards to be dealt in real life.
         """
-        # Select starting player
         self.starting_player = self._select_starting_player()
-        
-        # Input cards dealt in real life
         input("Press Enter when cards are dealt in real life...")
-        
-        # Input AI hands
-        print("=" * 80)
-        print("INPUT AI PLAYER HANDS")
-        print("=" * 80)
-        print("Enter the 13 cards dealt to each AI player in real life.")
-        print("This allows the AI to make decisions based on their actual hand.\n")
-        
-        for player_idx in range(4):
-            if self.players[player_idx].is_ai:
-                hand = self._input_ai_hand(self.players[player_idx].name)
-                self.player_hands[player_idx] = hand
-        
-        print("All AI hands configured!\n")
-    
-    def _input_ai_hand(self, player_name: str) -> list[Card]:
-        """Input the actual cards dealt to one AI player in real life"""
-        print(f"{player_name}'s hand (13 cards):")
-        print("  Enter cards separated by spaces (e.g., AH KS 7D 10C ...)")
-        print("  Or type 'help' for card format examples\n")
-        
-        while True:
-            cards_input = input(f"  Cards for {player_name}: ").strip()
-            
-            if cards_input.lower() == 'help':
-                print("\n  Card format examples:")
-                print("    - Number + Suit: 2H, 10D, 13C, 14S")
-                print("    - Letter + Suit: AH (Ace), KS (King), QD (Queen), JC (Jack)")
-                print("    - Suits: H=Hearts, D=Diamonds, C=Clubs, S=Spades")
-                print("    - Example input: AH KS 7D 10C 2H 3S 9D QH JC 4D 5H 6S 8C\n")
-                continue
-            
-            # Parse the cards
-            card_strings = cards_input.split()
-            
-            if len(card_strings) != 13:
-                print(f"  ❌ You must enter exactly 13 cards. You entered {len(card_strings)}.\n")
-                continue
-            
-            # Convert strings to Card objects
-            cards: list[Card] = []
-            invalid = False
-            for card_str in card_strings:
-                card = Card.from_string(card_str)
-                if card is None:
-                    print(f"  ❌ Invalid card format: '{card_str}'\n")
-                    invalid = True
-                    break
-                if card in cards:
-                    print(f"  ❌ Duplicate card: {card}\n")
-                    invalid = True
-                    break
-                cards.append(card)
-            
-            if invalid:
-                continue
-            
-            print(f"  ✓ Hand set for {player_name}: {self._display_card_list(cards)}\n")
-            return cards
-    
-    def _display_card_list(self, cards: list[Card], sort: bool = True) -> str:
-        """Format a list of cards for display"""
-        if sort:
-            cards = sorted(cards, key=lambda c: (c.suit.value, c.rank.value))
-        return ", ".join([str(card) for card in cards])
     
     def _select_starting_player(self) -> int:
-        """Let user choose which player starts the round"""
+        """
+        Let user choose which player starts the round.
+        
+        Returns
+        -------
+        int
+            Index (0-3) of the player who will start the round.
+        
+        Notes
+        -----
+        Provides an interactive prompt for player selection with validation.
+        """
         print("=" * 80)
         print("SELECT STARTING PLAYER")
         print("=" * 80)
@@ -226,10 +212,16 @@ class Round:
                     print("Invalid choice. Please enter a number between 1 and 4.")
             except ValueError:
                 print("Invalid input. Please enter a number between 1 and 4.")
-
     
     def start_vaza(self) -> Vaza:
-        """Start a new vaza"""
+        """
+        Start a new vaza.
+        
+        Returns
+        -------
+        Vaza
+            The newly created vaza object.
+        """
         vaza_number = len(self.vazas_history)
         self.current_vaza = Vaza(vaza_number, self.starting_player)
         return self.current_vaza
@@ -241,9 +233,19 @@ class Round:
         Parameters
         ----------
         player_idx : int
-            Index of the player playing the card.
+            Index (0-3) of the player playing the card.
         card : Card
             The card being played.
+        
+        Raises
+        ------
+        ValueError
+            If no active vaza exists to play the card in.
+        
+        Notes
+        -----
+        Does not enforce suit-following rules - validation should be done externally
+        using get_valid_plays(). Sets the main suit from the first card played.
         """
         if self.current_vaza is None:
             raise ValueError("No active vaza to play card in")
@@ -261,7 +263,22 @@ class Round:
         Returns
         -------
         int
-            Index of the player who won this vaza.
+            Index (0-3) of the player who won this vaza.
+        
+        Raises
+        ------
+        ValueError
+            If no active vaza exists to determine winner, or if no cards
+            of the main suit were found.
+        
+        Notes
+        -----
+        Winner determination follows these rules:
+        1. If trump suit exists and trump cards were played, highest trump wins
+        2. Otherwise, highest card of the main suit wins
+        
+        Updates vazas_won, cards_won, starting_player, vazas_history, and
+        clears current_vaza after determining the winner.
         """
         if self.current_vaza is None:
             raise ValueError("No active vaza to determine winner")
@@ -275,7 +292,7 @@ class Round:
             
             if trump_cards:
                 # Trump cards present - highest trump wins
-                winner_position, highest_card = max(trump_cards, key=lambda x: x[1].rank.value)
+                winner_position, _ = max(trump_cards, key=lambda x: x[1].rank.value)
                 winner_player = self.current_vaza.play_order[winner_position]
                 
                 # Update state
@@ -298,7 +315,7 @@ class Round:
             raise ValueError("No cards of main suit found in vaza - should not happen")
         
         # Get the highest card of the main suit
-        winner_position, highest_card = max(main_suit_cards, key=lambda x: x[1].rank.value)
+        winner_position, _ = max(main_suit_cards, key=lambda x: x[1].rank.value)
         winner_player = self.current_vaza.play_order[winner_position]
         
         # Update state
@@ -313,29 +330,105 @@ class Round:
     
     def get_play_order(self) -> list[int]:
         """
-        Get the order in which players play this vaza (clockwise from starter)
-        Returns: [starter, starter+1, starter+2, starter+3] (mod 4)
+        Get the order in which players play this vaza (clockwise from starter).
+        
+        Returns
+        -------
+        list[int]
+            List of player indices in play order [starter, starter+1, starter+2, starter+3] (mod 4).
         """
         return [(self.starting_player + i) % 4 for i in range(4)]
     
-    def get_next_vaza_info(self) -> dict:
-        """Get info about the next vaza to be played"""
+    def get_next_vaza_info(self) -> dict[str, int | list[int]]:
+        """
+        Get info about the next vaza to be played.
+        
+        Returns
+        -------
+        dict[str, int | list[int]]
+            Dictionary containing:
+            - 'vaza_number': Sequential number of next vaza (1-13)
+            - 'starter': Index of player who starts next vaza
+            - 'play_order': List of player indices in play order
+        """
         return {
             'vaza_number': len(self.vazas_history) + 1,
             'starter': self.starting_player,
             'play_order': self.get_play_order()
         }
     
-    def get_player_hand(self, player: int) -> list[Card]:
-        """Get current hand for a player"""
-        return self.player_hands[player]
-    
-    def get_valid_plays(self, player: int) -> list[Card]:
+    def can_end_early(self, cards_played_round: list[Card]) -> tuple[bool, str]:
         """
-        Get valid cards a player can play based on suit-following rules.
-        """
-        hand = self.player_hands[player]
+        Check if the current round can end early because all relevant penalty cards have been played.
         
+        Parameters
+        ----------
+        cards_played_round : list[Card]
+            List of all cards played in the round so far.
+        
+        Returns
+        -------
+        tuple[bool, str]
+            A tuple of (can_end, message) where:
+            - can_end (bool): True if the round can end early
+            - message (str): Explanation message (empty string if can't end early)
+        
+        Notes
+        -----
+        Early termination conditions:
+        - "copas": All 13 hearts played
+        - "homens": All 8 men (4 jacks + 4 kings) played
+        - "mulheres": All 4 queens played
+        - "king": King of Hearts played
+        """
+        if self.round_type == "copas":
+            hearts_played = sum(1 for c in cards_played_round if c.suit == Suit.HEARTS)
+            if hearts_played == 13:
+                return True, "\n✓ All hearts have been played. Ending round early.\n"
+        
+        elif self.round_type == "homens":
+            men_played = sum(1 for c in cards_played_round if c.rank in [Rank.JACK, Rank.KING])
+            if men_played == 8:
+                return True, "\n✓ All jacks and kings have been played. Ending round early.\n"
+        
+        elif self.round_type == "mulheres":
+            queens_played = sum(1 for c in cards_played_round if c.rank == Rank.QUEEN)
+            if queens_played == 4:
+                return True, "\n✓ All queens have been played. Ending round early.\n"
+        
+        elif self.round_type == "king":
+            king_of_hearts_played = any(
+                c.suit == Suit.HEARTS and c.rank == Rank.KING 
+                for c in cards_played_round
+            )
+            if king_of_hearts_played:
+                return True, "\n✓ King of Hearts has been played. Ending round early.\n"
+        
+        return False, ""
+    
+    def get_valid_plays(self, hand: list[Card]) -> list[Card]:
+        """
+        Get valid cards that can be played based on suit-following rules.
+        
+        Parameters
+        ----------
+        hand : list[Card]
+            The player's current hand of cards.
+        
+        Returns
+        -------
+        list[Card]
+            List of valid cards that can be played according to the rules.
+        
+        Notes
+        -----
+        Validation rules vary by round type:
+        - Must follow main suit if possible
+        - Special rules for copas (must play hearts if can't follow)
+        - Special rules for homens (must play jacks/kings if can't follow)
+        - Special rules for mulheres (must play queens if can't follow)
+        - If no valid cards by rules, all cards become valid
+        """
         if not hand:
             return []
         
@@ -359,7 +452,7 @@ class Round:
             elif self.round_type == "homens":
                 if has_main_suit and card.suit != self.current_vaza.main_suit:
                     continue
-                has_men = any(c.rank == Rank.JACK or c.rank == Rank.KING for c in hand)
+                has_men = any(c.rank in [Rank.JACK, Rank.KING] for c in hand)
                 if not has_main_suit and has_men and card.rank not in [Rank.JACK, Rank.KING]:
                     continue
                 valid.append(card)
@@ -376,131 +469,118 @@ class Round:
                     continue
                 valid.append(card)
         
-        return valid if valid else hand.copy()  # If no valid by rules, can play anything
-    
-    def _is_man(self, card: Card) -> bool:
-        """Check if card is a 'man' (jack or king)"""
-        return card.rank == Rank.JACK or card.rank == Rank.KING
-    
-    def _is_woman(self, card: Card) -> bool:
-        """Check if card is a 'woman' (queen)"""
-        return card.rank == Rank.QUEEN
-    
-    def _is_king_of_hearts(self, card: Card) -> bool:
-        """Check if card is the King of Hearts"""
-        return card.rank == Rank.KING and card.suit == Suit.HEARTS
-    
-    def play_card(self, player: int, card: Card) -> bool:
-        """
-        Player plays a card. Returns True if successful, False if invalid.
-        Removes card from player's hand and records it in current vaza.
-        Enforces suit-following rules based on round type.
-        """
-        if card not in self.player_hands[player]:
-            return False  # Player doesn't have this card
-        
-        # If main suit is set, check forced play rules
-        if self.current_vaza.main_suit is not None:
-            # Check what cards player has
-            has_main_suit = any(c.suit == self.current_vaza.main_suit for c in self.player_hands[player])
-            has_hearts = any(c.suit == Suit.HEARTS for c in self.player_hands[player])
-            has_men = any(self._is_man(c) for c in self.player_hands[player])
-            has_women = any(self._is_woman(c) for c in self.player_hands[player])
-            
-            if self.round_type == "copas":
-                # In copas: must play main suit, else must play hearts, else anything
-                if has_main_suit and card.suit != self.current_vaza.main_suit:
-                    return False  # Must play main suit
-                if not has_main_suit and has_hearts and card.suit != Suit.HEARTS:
-                    return False  # Must play hearts if no main suit
-            elif self.round_type == "homens":
-                # In homens: must play main suit, else must play men (jacks/kings), else anything
-                if has_main_suit and card.suit != self.current_vaza.main_suit:
-                    return False  # Must play main suit
-                if not has_main_suit and has_men and not self._is_man(card):
-                    return False  # Must play men (jack or king) if no main suit
-            elif self.round_type == "mulheres":
-                # In mulheres: must play main suit, else must play women (queens), else anything
-                if has_main_suit and card.suit != self.current_vaza.main_suit:
-                    return False  # Must play main suit
-                if not has_main_suit and has_women and not self._is_woman(card):
-                    return False  # Must play women (queen) if no main suit
-            else:
-                # Default rule: must play main suit if you have it
-                if has_main_suit and card.suit != self.current_vaza.main_suit:
-                    return False  # Must follow suit
-        
-        # Set main suit from first card played in this vaza
-        if self.current_vaza.main_suit is None:
-            self.current_vaza.main_suit = card.suit
-        
-        self.player_hands[player].remove(card)
-        self.current_vaza.play(player, card)
-        return True
-    
-    def complete_vaza(self) -> int:
-        """
-        Completes current vaza. Determines winner, updates vazas_won, 
-        sets next starting_player, saves vaza to history.
-        Winner is the highest trump card (if any), else highest card of main suit.
-        Returns: index of the player who won this vaza
-        """
-        # Check for trump suit cards first (if trump suit is defined)
-        if self.trump_suit is not None:
-            trump_cards = [
-                (i, card) for i, card in enumerate(self.current_vaza.cards_played)
-                if card.suit == self.trump_suit
-            ]
-            
-            if trump_cards:
-                # Trump cards present - highest trump wins
-                winner_position, highest_card = max(trump_cards, key=lambda x: x[1].rank.value)
-                winner_player = self.current_vaza.play_order[winner_position]
-                
-                self.current_vaza.winner = winner_player
-                self.vazas_won[winner_player] += 1
-                self.cards_won[winner_player].extend(self.current_vaza.cards_played)
-                self.starting_player = winner_player
-                self.vazas_history.append(self.current_vaza)
-                self.current_vaza = None
-                
-                return winner_player
-        
-        # No trump cards or no trump suit - highest card of main suit wins
-        main_suit_cards = [
-            (i, card) for i, card in enumerate(self.current_vaza.cards_played)
-            if card.suit == self.current_vaza.main_suit
-        ]
-        
-        if not main_suit_cards:
-            raise ValueError("No cards of main suit found in vaza - should not happen")
-        
-        # Get the highest card of the main suit
-        winner_position, highest_card = max(main_suit_cards, key=lambda x: x[1].rank.value)
-        winner_player = self.current_vaza.play_order[winner_position]
-        
-        self.current_vaza.winner = winner_player
-        self.vazas_won[winner_player] += 1
-        
-        # Track cards won by this player
-        self.cards_won[winner_player].extend(self.current_vaza.cards_played)
-        
-        self.starting_player = winner_player
-        
-        # Save to history
-        self.vazas_history.append(self.current_vaza)
-        self.current_vaza = None
-        
-        return winner_player
-    
-    def is_round_over(self) -> bool:
-        """Check if all cards have been played"""
-        return all(len(hand) == 0 for hand in self.player_hands)
+        return valid if valid else hand.copy()
     
     def count_suit(self, player: int, suit: Suit) -> int:
-        """Count how many cards of a specific suit a player won"""
+        """
+        Count how many cards of a specific suit a player won.
+        
+        Parameters
+        ----------
+        player : int
+            Index (0-3) of the player.
+        suit : Suit
+            The suit to count.
+        
+        Returns
+        -------
+        int
+            Number of cards of the specified suit the player won.
+        """
         return sum(1 for card in self.cards_won[player] if card.suit == suit)
     
     def count_rank(self, player: int, rank: Rank) -> int:
-        """Count how many cards of a specific rank a player won"""
+        """
+        Count how many cards of a specific rank a player won.
+        
+        Parameters
+        ----------
+        player : int
+            Index (0-3) of the player.
+        rank : Rank
+            The rank to count.
+        
+        Returns
+        -------
+        int
+            Number of cards of the specified rank the player won.
+        """
         return sum(1 for card in self.cards_won[player] if card.rank == rank)
+    
+    def calculate_points(self) -> list[int]:
+        """
+        Calculate points for current round based on round type and what was won.
+        
+        Returns
+        -------
+        list[int]
+            Points for each player [points_p0, points_p1, points_p2, points_p3].
+        
+        Notes
+        -----
+        Point calculation varies by round type:
+        - "vazas": Based on number of vazas won
+        - "copas": Based on number of hearts won
+        - "homens": Based on number of jacks and kings won
+        - "mulheres": Based on number of queens won
+        - "king": Based on having the King of Hearts
+        - "last": Based on winning the last 2 vazas (12th and 13th)
+        
+        Raises
+        ------
+        NotImplementedError
+            If round_type is not recognized.
+        """
+        if self.round_type == "vazas":
+            return [
+                PointManager.get_points(self.round_type, self.vazas_won[i])
+                for i in range(4)
+            ]
+        elif self.round_type == "copas":
+            hearts_won = [self.count_suit(i, Suit.HEARTS) for i in range(4)]
+            return [
+                PointManager.get_points(self.round_type, hearts_won[i])
+                for i in range(4)
+            ]
+        elif self.round_type == "homens":
+            men_won = [
+                self.count_rank(i, Rank.JACK) + self.count_rank(i, Rank.KING)
+                for i in range(4)
+            ]
+            return [
+                PointManager.get_points(self.round_type, men_won[i])
+                for i in range(4)
+            ]
+        elif self.round_type == "mulheres":
+            women_won = [self.count_rank(i, Rank.QUEEN) for i in range(4)]
+            return [
+                PointManager.get_points(self.round_type, women_won[i])
+                for i in range(4)
+            ]
+        elif self.round_type == "king":
+            king_points = [0, 0, 0, 0]
+            for player_idx in range(4):
+                for card in self.cards_won[player_idx]:
+                    if card.rank == Rank.KING and card.suit == Suit.HEARTS:
+                        king_points[player_idx] = PointManager.get_points(self.round_type, 1)
+                        break
+            return king_points
+        elif self.round_type == "last":
+            last_two_vazas_won = [0, 0, 0, 0]
+            
+            # Check the last 2 vazas
+            history = self.vazas_history
+            if len(history) >= 12:
+                winner_12 = history[11].winner
+                last_two_vazas_won[winner_12] += 1
+            
+            if len(history) >= 13:
+                winner_13 = history[12].winner
+                last_two_vazas_won[winner_13] += 1
+            
+            return [
+                PointManager.get_points(self.round_type, last_two_vazas_won[i])
+                for i in range(4)
+            ]
+        else:
+            raise NotImplementedError(f"Round type '{self.round_type}' not implemented yet")
